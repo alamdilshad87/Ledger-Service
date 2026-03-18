@@ -28,6 +28,22 @@ public class AccountRepository {
                 .single();
     }
 
+    /**
+     * Adds {@code delta} paise to the cached balance and returns the new balance,
+     * or empty if the account doesn't exist. Only {@code LedgerService} should call this.
+     */
+    public Optional<Long> applyDelta(long id, long delta) {
+        return jdbc.sql("""
+                        UPDATE accounts SET balance = balance + :delta, version = version + 1
+                        WHERE id = :id
+                        RETURNING balance
+                        """)
+                .param("id", id)
+                .param("delta", delta)
+                .query(Long.class)
+                .optional();
+    }
+
     public Optional<Account> findById(long id) {
         return jdbc.sql("""
                         SELECT id, owner_id, type, currency, balance, created_at
