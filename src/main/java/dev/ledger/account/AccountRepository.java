@@ -28,6 +28,13 @@ public class AccountRepository {
                 .single();
     }
 
+    /** The single system account every top-up is funded from (seeded by migration V1). */
+    public long clearingAccountId() {
+        return jdbc.sql("SELECT id FROM accounts WHERE type = 'SYSTEM_CLEARING' ORDER BY id LIMIT 1")
+                .query(Long.class)
+                .single();
+    }
+
     /**
      * Adds {@code delta} paise to the cached balance and returns the new balance,
      * or empty if the account doesn't exist. Only {@code LedgerService} should call this.

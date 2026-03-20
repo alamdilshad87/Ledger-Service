@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -33,6 +34,14 @@ public class GlobalExceptionHandler {
                 .map(f -> f.getField() + " " + f.getDefaultMessage())
                 .collect(Collectors.joining("; "));
         return respond(HttpStatus.BAD_REQUEST, "VALIDATION_FAILED", message);
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    ResponseEntity<ErrorResponse> handleMissingHeader(MissingRequestHeaderException e) {
+        if (IdempotencyKeys.HEADER.equalsIgnoreCase(e.getHeaderName())) {
+            return respond(HttpStatus.BAD_REQUEST, "MISSING_IDEMPOTENCY_KEY", IdempotencyKeys.HEADER + " header is required");
+        }
+        return respond(HttpStatus.BAD_REQUEST, "BAD_REQUEST", e.getHeaderName() + " header is required");
     }
 
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class})
