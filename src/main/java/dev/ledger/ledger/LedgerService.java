@@ -3,8 +3,11 @@ package dev.ledger.ledger;
 import java.time.OffsetDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.TreeMap;
 
+import dev.ledger.account.Account;
 import dev.ledger.account.AccountRepository;
+import dev.ledger.account.AccountType;
 import dev.ledger.common.InsufficientFundsException;
 import dev.ledger.common.NotFoundException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -13,8 +16,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * The only place money moves. Writes the journal entry, its postings and the cached
- * account balances in one transaction, so either all of it commits or none of it does.
+ * The only place money moves. In one transaction it:
+ * <ol>
+ *   <li>locks every account in the entry, in ascending id order</li>
+ *   <li>checks no user wallet would go negative, against the locked (current) balances</li>
+ *   <li>writes the journal entry, its postings and the new cached balances</li>
+ * </ol>
+ * Either all of it commits or none of it does.
  */
 @Service
 public class LedgerService {
@@ -29,6 +37,14 @@ public class LedgerService {
 
     @Transactional
     public PostedEntry post(NewJournalEntry entry) {
+        Map<Long, Account> locked = lockInIdOrder(entry);
+        for (Posting posting : entry.postings()) {
+            Account account = locked.get(posting.accountId());
+            if (account.type() == AccountType.USER_WALLET && account.balance() + posting.amount() < 0) {
+                throw new InsufficientFundsException();
+            }
+        }
+
         OffsetDateTime createdAt = jdbc.sql("""
                         INSERT INTO journal_entries (id, type, reference_id, idempotency_key, note)
                         VALUES (:id, :type, :referenceId, :key, :note)
@@ -56,13 +72,31 @@ public class LedgerService {
         return new PostedEntry(entry.id(), createdAt, Map.copyOf(balancesAfter));
     }
 
+    /**
+     * Takes a row lock on every account in the entry, lowest id first.
+     * <p>
+     * The fixed order is what prevents deadlocks: if Asha→Ravi locked Asha then Ravi while Ravi→Asha
+     * locked Ravi then Asha, each could hold one lock and wait forever for the other. With one global
+     * order the second transaction simply queues behind the first.
+     */
+    private Map<Long, Account> lockInIdOrder(NewJournalEntry entry) {
+        Map<Long, Account> locked = new TreeMap<>();
+        entry.postings().stream()
+                .map(Posting::accountId)
+                .sorted()
+                .forEach(id -> locked.put(id, accounts.lockForUpdate(id)
+                        .orElseThrow(() -> new NotFoundException("ACCOUNT_NOT_FOUND", "Account " + id + " not found"))));
+        return locked;
+    }
+
     private long applyToBalance(Posting posting) {
         try {
             return accounts.applyDelta(posting.accountId(), posting.amount())
                     .orElseThrow(() -> new NotFoundException(
                             "ACCOUNT_NOT_FOUND", "Account " + posting.accountId() + " not found"));
         } catch (DataIntegrityViolationException e) {
-            // Last line of defence: the CHECK constraint refused to let a wallet go negative.
+            // Should be unreachable now that balances are checked under lock; the CHECK constraint
+            // stays as the last line of defence against a future bug.
             if (String.valueOf(e.getMessage()).contains("non_negative_wallet")) {
                 throw new InsufficientFundsException();
             }

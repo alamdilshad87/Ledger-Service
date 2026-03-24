@@ -7,7 +7,6 @@ import java.util.UUID;
 import dev.ledger.account.Account;
 import dev.ledger.account.AccountRepository;
 import dev.ledger.account.AccountType;
-import dev.ledger.common.InsufficientFundsException;
 import dev.ledger.common.NotFoundException;
 import dev.ledger.common.UnprocessableException;
 import dev.ledger.ledger.EntryType;
@@ -41,12 +40,8 @@ public class TransferService {
             throw new UnprocessableException("CURRENCY_MISMATCH", "Both wallets must use the same currency");
         }
 
-        // Read-then-write without a row lock: two concurrent transfers can both pass this check.
-        // The non_negative_wallet CHECK still stops the balance going below zero.
-        // Week 3 reproduces that race and fixes it with SELECT ... FOR UPDATE in id order.
-        if (from.balance() < amount) {
-            throw new InsufficientFundsException();
-        }
+        // No balance check here: a balance read outside the lock can be stale by the time we write.
+        // LedgerService locks both rows (lower id first) and checks the balance under the lock.
 
         PostedEntry posted = ledger.post(NewJournalEntry.of(EntryType.TRANSFER, idempotencyKey, note,
                 List.of(Posting.debit(fromId, amount), Posting.credit(toId, amount))));
