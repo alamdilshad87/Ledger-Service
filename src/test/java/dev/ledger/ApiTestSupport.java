@@ -16,7 +16,11 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
 /** Shared setup and helpers for API tests running against a real Postgres. */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        // Concurrency tests open 200 connections in the same instant. Tomcat's default accept backlog
+        // is 100, and Windows refuses (rather than queues) connections beyond it.
+        properties = "server.tomcat.accept-count=1000")
 @Import(TestcontainersConfig.class)
 public abstract class ApiTestSupport {
 
