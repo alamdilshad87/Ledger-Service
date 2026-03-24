@@ -2,7 +2,7 @@
 
 A double-entry payments ledger: INR wallets, transfers, merchant payments and refunds, built so money never appears or disappears and a retried request never charges twice.
 
-Status: **Week 2 — the ledger** (double-entry postings, top-ups, transfers, statements).
+Status: **Week 3 — concurrency** (row locks in id order, 200-thread race tests).
 
 ## Quick start
 
@@ -59,7 +59,7 @@ Errors always look like `{ "code": "...", "message": "...", "traceId": "..." }`.
 - **Append-only:** database triggers reject `UPDATE` and `DELETE` on `journal_entries` and `postings`. Mistakes get a reversing entry.
 - **Every rupee has a source:** top-ups debit the seeded `SYSTEM_CLEARING` account, so the sum of all postings is always 0.
 - **Cached balances:** `accounts.balance` is updated in the same transaction as the postings, and tests check it always equals the sum of that account's postings.
-- **Wallets can't go negative:** an application check returns 402, and a `CHECK` constraint backs it up. The check isn't locked yet, so concurrent transfers can race; week 3 fixes that with `SELECT … FOR UPDATE`.
+- **Concurrency:** `LedgerService` locks every account in an entry with `SELECT … FOR UPDATE`, lowest id first, then checks balances under the lock (402 if a wallet would go negative). The fixed order prevents deadlocks; the `CHECK` constraint stays as a backstop. Before this, 200 simultaneous opposite-direction transfers produced 190 errors from deadlocks, and with the constraint removed a wallet went to −₹90. Full write-up with before/after numbers: [docs/concurrency.md](docs/concurrency.md).
 
 ## Ledger invariants (tested)
 
@@ -69,6 +69,8 @@ Errors always look like `{ "code": "...", "message": "...", "traceId": "..." }`.
 2. every account's cached balance equals the sum of its postings
 3. the 20 wallets still hold exactly what they were topped up with
 4. no wallet is negative
+
+`ConcurrentTransferTest` repeats two 200-thread races 20 times each: draining one wallet (exactly 100 of 200 transfers succeed, balance ends at 0) and opposite-direction transfers between two wallets (all 200 succeed, no deadlocks).
 
 ## Out of scope
 
