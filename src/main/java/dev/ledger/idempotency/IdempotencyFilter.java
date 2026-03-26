@@ -46,14 +46,16 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(IdempotencyFilter.class);
 
     private final IdempotencyStore store;
+    private final IdempotencyCache cache;
     private final RequestFingerprint fingerprint;
     private final IdempotencyProperties properties;
     private final TransactionTemplate transaction;
     private final ObjectMapper json;
 
-    public IdempotencyFilter(IdempotencyStore store, RequestFingerprint fingerprint, IdempotencyProperties properties,
-                             TransactionTemplate transaction, ObjectMapper json) {
+    public IdempotencyFilter(IdempotencyStore store, IdempotencyCache cache, RequestFingerprint fingerprint,
+                             IdempotencyProperties properties, TransactionTemplate transaction, ObjectMapper json) {
         this.store = store;
+        this.cache = cache;
         this.fingerprint = fingerprint;
         this.properties = properties;
         this.transaction = transaction;
@@ -81,12 +83,23 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         CachedBodyRequest request = new CachedBodyRequest(httpRequest);
         String requestHash = fingerprint.of(request.getMethod(), request.getRequestURI(), request.body());
 
+        // Fast path: a finished request is answered from Redis without touching Postgres.
+        Optional<IdempotencyCache.CachedResult> cached = cache.get(key);
+        if (cached.isPresent()) {
+            if (cached.get().requestHash().equals(requestHash)) {
+                replay(response, cached.get().status(), cached.get().body());
+            } else {
+                writeKeyReused(response);
+            }
+            return;
+        }
+
         Optional<UUID> claim = store.tryClaim(key, requestHash, properties.lease());
         if (claim.isEmpty()) {
             respondToExistingKey(key, requestHash, response);
             return;
         }
-        runOnce(key, claim.get(), request, response, chain);
+        runOnce(key, requestHash, claim.get(), request, response, chain);
     }
 
     private void respondToExistingKey(String key, String requestHash, HttpServletResponse response) throws IOException {
@@ -98,16 +111,22 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         }
         IdempotencyStore.KeyRecord record = existing.get();
         if (!record.requestHash().equals(requestHash)) {
-            writeError(response, 422, "IDEMPOTENCY_KEY_REUSED",
-                    "This Idempotency-Key was already used for a different request");
+            writeKeyReused(response);
         } else if (record.status() == IdempotencyStore.Status.IN_PROGRESS) {
             writeError(response, 409, "REQUEST_IN_PROGRESS", "A request with this key is being processed; retry shortly");
         } else {
+            // Redis missed (evicted, restarted or down): refill it for the next retry.
+            cache.put(key, new IdempotencyCache.CachedResult(record.requestHash(), record.responseCode(),
+                    record.responseBody()), properties.ttl());
             replay(response, record.responseCode(), record.responseBody());
         }
     }
 
-    private void runOnce(String key, UUID claim, CachedBodyRequest request, HttpServletResponse response, FilterChain chain)
+    private void writeKeyReused(HttpServletResponse response) throws IOException {
+        writeError(response, 422, "IDEMPOTENCY_KEY_REUSED", "This Idempotency-Key was already used for a different request");
+    }
+
+    private void runOnce(String key, String requestHash, UUID claim, CachedBodyRequest request, HttpServletResponse response, FilterChain chain)
             throws IOException, ServletException {
         ContentCachingResponseWrapper buffered = new ContentCachingResponseWrapper(response);
         boolean completed;
@@ -151,15 +170,19 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             return;
         }
 
+        int status = buffered.getStatus();
         if (!completed) {
-            int status = buffered.getStatus();
             if (isFinalBusinessOutcome(status)) {
                 // Same key + same request must keep getting the same answer, even if the balance changes later.
-                store.complete(key, claim, status, bodyOf(buffered));
+                completed = store.complete(key, claim, status, bodyOf(buffered));
             } else {
                 // 400s and 5xx: nothing happened, let the client retry with the same key.
                 store.release(key, claim);
             }
+        }
+        if (completed) {
+            // Only after the Postgres commit: Redis must never know a result Postgres doesn't.
+            cache.put(key, new IdempotencyCache.CachedResult(requestHash, status, bodyOf(buffered)), properties.ttl());
         }
         buffered.copyBodyToResponse();
     }

@@ -7,11 +7,27 @@ spring:
     password: ${DB_PASSWORD:ledger}
   flyway:
     enabled: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      # Redis is only a cache in front of Postgres: give up fast and fall back rather than stall a payment.
+      timeout: 250ms
+      connect-timeout: 250ms
+
+ledger:
+  idempotency:
+    ttl: 24h
+    lease: 60s
 
 server:
   port: 8080
 
 management:
+  health:
+    redis:
+      # Redis is an optional cache; the service is healthy without it.
+      enabled: false
   endpoints:
     web:
       exposure:
