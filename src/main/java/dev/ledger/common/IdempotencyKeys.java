@@ -2,7 +2,7 @@ package dev.ledger.common;
 
 /**
  * Every money-moving POST must carry an {@code Idempotency-Key} header.
- * For now the key is only validated and stored on the journal entry; replay protection lands in week 4.
+ * {@code IdempotencyFilter} enforces it and handles replays; controllers read it to record on the entry.
  */
 public final class IdempotencyKeys {
 

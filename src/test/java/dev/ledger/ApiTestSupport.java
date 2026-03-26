@@ -47,6 +47,14 @@ public abstract class ApiTestSupport {
         return http.exchange(path, HttpMethod.POST, new HttpEntity<>(body, headers), JSON);
     }
 
+    /** POST a raw JSON string exactly as written (to test whitespace and key order). */
+    protected ResponseEntity<Map<String, Object>> postRaw(String path, String json, String idempotencyKey) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        headers.set("Idempotency-Key", idempotencyKey);
+        return http.exchange(path, HttpMethod.POST, new HttpEntity<>(json, headers), JSON);
+    }
+
     protected ResponseEntity<Map<String, Object>> get(String path) {
         return http.exchange(path, HttpMethod.GET, null, JSON);
     }
