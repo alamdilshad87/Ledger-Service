@@ -2,7 +2,7 @@
 
 A double-entry payments ledger: INR wallets, transfers, merchant payments and refunds, built so money never appears or disappears and a retried request never charges twice.
 
-Status: **Week 3 — concurrency** (row locks in id order, 200-thread race tests).
+Status: **Week 4 — idempotency** (safe retries: replay, 409 in progress, 422 key reuse, Redis fast path).
 
 ## Quick start
 
@@ -48,7 +48,15 @@ Run the tests (they start their own Postgres with Testcontainers):
 | POST | `/v1/transfers` | Wallet to wallet | 402 `INSUFFICIENT_FUNDS`, 404, 422 `SAME_ACCOUNT` |
 | GET | `/v1/journal-entries/{id}` | One entry with all its postings | 404 `ENTRY_NOT_FOUND` |
 
-Every money-moving POST needs an `Idempotency-Key` header (400 `MISSING_IDEMPOTENCY_KEY` without one). The key is stored on the journal entry; replay protection arrives in week 4.
+Every money-moving POST needs an `Idempotency-Key` header (400 `MISSING_IDEMPOTENCY_KEY` without one). Retrying with the same key never moves money twice:
+
+| Same key, and… | Response |
+| --- | --- |
+| same request, finished | the original response replayed, with `Idempotent-Replayed: true` |
+| same request, still running | 409 `REQUEST_IN_PROGRESS` |
+| a different request | 422 `IDEMPOTENCY_KEY_REUSED` |
+
+Keys are remembered for 24 hours. Details below and in [docs/idempotency.md](docs/idempotency.md).
 
 Errors always look like `{ "code": "...", "message": "...", "traceId": "..." }`.
 
@@ -60,6 +68,7 @@ Errors always look like `{ "code": "...", "message": "...", "traceId": "..." }`.
 - **Every rupee has a source:** top-ups debit the seeded `SYSTEM_CLEARING` account, so the sum of all postings is always 0.
 - **Cached balances:** `accounts.balance` is updated in the same transaction as the postings, and tests check it always equals the sum of that account's postings.
 - **Concurrency:** `LedgerService` locks every account in an entry with `SELECT … FOR UPDATE`, lowest id first, then checks balances under the lock (402 if a wallet would go negative). The fixed order prevents deadlocks; the `CHECK` constraint stays as a backstop. Before this, 200 simultaneous opposite-direction transfers produced 190 errors from deadlocks, and with the constraint removed a wallet went to −₹90. Full write-up with before/after numbers: [docs/concurrency.md](docs/concurrency.md).
+- **Idempotency:** `IdempotencyFilter` claims the key with `INSERT … ON CONFLICT` (the Postgres primary key is the real guarantee), then runs the request in one transaction that also marks the key COMPLETED. Money movement and stored response commit together, so an unfinished key always means no money moved: after a crash, a retry can safely take over the claim once its 60 s lease expires, and a claim token stops the old holder committing. Redis caches finished results for fast replays; if Redis is down, Postgres answers instead. Full design: [docs/idempotency.md](docs/idempotency.md).
 
 ## Ledger invariants (tested)
 
@@ -71,6 +80,8 @@ Errors always look like `{ "code": "...", "message": "...", "traceId": "..." }`.
 4. no wallet is negative
 
 `ConcurrentTransferTest` repeats two 200-thread races 20 times each: draining one wallet (exactly 100 of 200 transfers succeed, balance ends at 0) and opposite-direction transfers between two wallets (all 200 succeed, no deadlocks).
+
+`ConcurrentDuplicateTest` sends the same transfer 100 times in parallel with one key, 10 times over: exactly one journal entry each time, and the money moves once.
 
 ## Out of scope
 
