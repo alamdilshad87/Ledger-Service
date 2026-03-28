@@ -78,6 +78,16 @@ public class IdempotencyStore {
                 .update() == 1;
     }
 
+    /**
+     * Forgets keys created more than {@code ttl} ago and returns how many were removed. An IN_PROGRESS
+     * row that old never committed any money (see V3__idempotency_keys.sql), so it's safe to drop too.
+     */
+    public int deleteOlderThan(Duration ttl) {
+        return jdbc.sql("DELETE FROM idempotency_keys WHERE created_at < now() - make_interval(secs => CAST(:ttl AS double precision))")
+                .param("ttl", ttl.toMillis() / 1000.0)
+                .update();
+    }
+
     /** Gives the key back so the client can retry, e.g. after a validation error or a server error. */
     public void release(String key, UUID claimToken) {
         jdbc.sql("DELETE FROM idempotency_keys WHERE key = :key AND claim_token = :token AND status = 'IN_PROGRESS'")
