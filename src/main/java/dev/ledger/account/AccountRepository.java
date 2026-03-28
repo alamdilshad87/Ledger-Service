@@ -29,6 +29,26 @@ public class AccountRepository {
                 .single();
     }
 
+    public long createMerchantAccount(UUID merchantId, String currency) {
+        return jdbc.sql("""
+                        INSERT INTO accounts (merchant_id, type, currency)
+                        VALUES (:merchantId, 'MERCHANT', :currency)
+                        RETURNING id
+                        """)
+                .param("merchantId", merchantId)
+                .param("currency", currency)
+                .query(Long.class)
+                .single();
+    }
+
+    /** The account a merchant's payments are credited to, or empty if the merchant doesn't exist. */
+    public Optional<Long> merchantAccountId(UUID merchantId) {
+        return jdbc.sql("SELECT id FROM accounts WHERE merchant_id = :merchantId AND type = 'MERCHANT'")
+                .param("merchantId", merchantId)
+                .query(Long.class)
+                .optional();
+    }
+
     /** The single system account every top-up is funded from (seeded by migration V1). */
     public long clearingAccountId() {
         return jdbc.sql("SELECT id FROM accounts WHERE type = 'SYSTEM_CLEARING' ORDER BY id LIMIT 1")
