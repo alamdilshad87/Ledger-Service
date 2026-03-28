@@ -2,8 +2,8 @@ package dev.ledger.idempotency;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.util.AntPathMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
@@ -39,7 +40,10 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
 public class IdempotencyFilter extends OncePerRequestFilter {
 
     /** POST endpoints that move money. Every one of them requires an Idempotency-Key. */
-    static final Set<String> PROTECTED_PATHS = Set.of("/v1/topups", "/v1/transfers", "/v1/payments");
+    static final List<String> PROTECTED_PATHS =
+            List.of("/v1/topups", "/v1/transfers", "/v1/payments", "/v1/payments/*/refunds");
+
+    private static final AntPathMatcher PATHS = new AntPathMatcher();
 
     static final String REPLAYED_HEADER = "Idempotent-Replayed";
 
@@ -64,7 +68,8 @@ public class IdempotencyFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !("POST".equals(request.getMethod()) && PROTECTED_PATHS.contains(request.getRequestURI()));
+        String path = request.getRequestURI();
+        return !("POST".equals(request.getMethod()) && PROTECTED_PATHS.stream().anyMatch(p -> PATHS.match(p, path)));
     }
 
     @Override

@@ -56,4 +56,11 @@ public record NewJournalEntry(
     public static NewJournalEntry of(EntryType type, String idempotencyKey, String note, List<Posting> postings) {
         return new NewJournalEntry(UUID.randomUUID(), type, idempotencyKey, null, note, postings);
     }
+
+    /** An entry that points back at an earlier one, e.g. a refund of a payment. */
+    public static NewJournalEntry referencing(UUID referenceId, EntryType type, String idempotencyKey, String note,
+                                              List<Posting> postings) {
+        return new NewJournalEntry(UUID.randomUUID(), type, idempotencyKey,
+                Objects.requireNonNull(referenceId, "referenceId"), note, postings);
+    }
 }
