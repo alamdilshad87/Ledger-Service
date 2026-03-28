@@ -39,7 +39,7 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
 public class IdempotencyFilter extends OncePerRequestFilter {
 
     /** POST endpoints that move money. Every one of them requires an Idempotency-Key. */
-    static final Set<String> PROTECTED_PATHS = Set.of("/v1/topups", "/v1/transfers");
+    static final Set<String> PROTECTED_PATHS = Set.of("/v1/topups", "/v1/transfers", "/v1/payments");
 
     static final String REPLAYED_HEADER = "Idempotent-Replayed";
 

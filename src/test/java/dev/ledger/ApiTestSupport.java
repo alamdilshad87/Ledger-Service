@@ -71,6 +71,24 @@ public abstract class ApiTestSupport {
         return wallet;
     }
 
+    /** Creates a merchant and returns {merchantId, accountId}. */
+    protected Merchant newMerchant() {
+        var created = post("/v1/merchants", Map.of("name", "Merchant " + UUID.randomUUID().toString().substring(0, 8)));
+        assertStatus(created, HttpStatus.CREATED);
+        return new Merchant(UUID.fromString((String) created.getBody().get("merchantId")),
+                asLong(created.getBody().get("accountId")));
+    }
+
+    protected record Merchant(UUID id, long accountId) {
+    }
+
+    /** Pays a merchant and returns the payment id. */
+    protected UUID pay(long wallet, Merchant merchant, long paise) {
+        var paid = post("/v1/payments", Map.of("fromAccountId", wallet, "merchantId", merchant.id(), "amount", paise));
+        assertStatus(paid, HttpStatus.CREATED);
+        return UUID.fromString((String) paid.getBody().get("paymentId"));
+    }
+
     protected long balanceOf(long accountId) {
         return jdbc.sql("SELECT balance FROM accounts WHERE id = :id").param("id", accountId).query(Long.class).single();
     }
