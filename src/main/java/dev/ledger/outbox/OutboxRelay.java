@@ -69,7 +69,9 @@ public class OutboxRelay {
                     log.warn("Outbox publish failed at event {} ({}); will retry: {}", row.id(), row.eventType(), e.toString());
                     break;
                 }
-                jdbc.sql("UPDATE outbox_events SET published_at = now() WHERE id = :id").param("id", row.id()).update();
+                // clock_timestamp(), not now(): now() is the transaction's start time, which would understate lag.
+                jdbc.sql("UPDATE outbox_events SET published_at = clock_timestamp() WHERE id = :id")
+                        .param("id", row.id()).update();
                 sent++;
             }
             return sent;
