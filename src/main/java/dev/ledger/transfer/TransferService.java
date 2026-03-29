@@ -2,6 +2,7 @@ package dev.ledger.transfer;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import dev.ledger.account.Account;
@@ -14,6 +15,7 @@ import dev.ledger.ledger.LedgerService;
 import dev.ledger.ledger.NewJournalEntry;
 import dev.ledger.ledger.PostedEntry;
 import dev.ledger.ledger.Posting;
+import dev.ledger.outbox.OutboxWriter;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,10 +25,12 @@ public class TransferService {
 
     private final AccountRepository accounts;
     private final LedgerService ledger;
+    private final OutboxWriter outbox;
 
-    public TransferService(AccountRepository accounts, LedgerService ledger) {
+    public TransferService(AccountRepository accounts, LedgerService ledger, OutboxWriter outbox) {
         this.accounts = accounts;
         this.ledger = ledger;
+        this.outbox = outbox;
     }
 
     @Transactional
@@ -45,6 +49,13 @@ public class TransferService {
 
         PostedEntry posted = ledger.post(NewJournalEntry.of(EntryType.TRANSFER, idempotencyKey, note,
                 List.of(Posting.debit(fromId, amount), Posting.credit(toId, amount))));
+
+        outbox.append("transfer", posted.id(), "transfer.completed", Map.of(
+                "entryId", posted.id(),
+                "fromAccountId", fromId,
+                "toAccountId", toId,
+                "amount", amount,
+                "currency", from.currency()));
 
         return new TransferResult(posted.id(), "COMPLETED", posted.balanceOf(fromId), posted.createdAt());
     }

@@ -2,6 +2,7 @@ package dev.ledger.topup;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import dev.ledger.account.Account;
@@ -14,6 +15,7 @@ import dev.ledger.ledger.LedgerService;
 import dev.ledger.ledger.NewJournalEntry;
 import dev.ledger.ledger.PostedEntry;
 import dev.ledger.ledger.Posting;
+import dev.ledger.outbox.OutboxWriter;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,10 +25,12 @@ public class TopUpService {
 
     private final AccountRepository accounts;
     private final LedgerService ledger;
+    private final OutboxWriter outbox;
 
-    public TopUpService(AccountRepository accounts, LedgerService ledger) {
+    public TopUpService(AccountRepository accounts, LedgerService ledger, OutboxWriter outbox) {
         this.accounts = accounts;
         this.ledger = ledger;
+        this.outbox = outbox;
     }
 
     @Transactional
@@ -40,6 +44,12 @@ public class TopUpService {
         long clearing = accounts.clearingAccountId();
         PostedEntry posted = ledger.post(NewJournalEntry.of(EntryType.TOPUP, idempotencyKey, null,
                 List.of(Posting.debit(clearing, amount), Posting.credit(walletId, amount))));
+
+        outbox.append("topup", posted.id(), "topup.completed", Map.of(
+                "entryId", posted.id(),
+                "accountId", walletId,
+                "amount", amount,
+                "currency", wallet.currency()));
 
         return new TopUpResult(posted.id(), "COMPLETED", posted.balanceOf(walletId), posted.createdAt());
     }

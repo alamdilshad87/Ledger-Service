@@ -2,6 +2,7 @@ package dev.ledger.payment;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import dev.ledger.common.NotFoundException;
@@ -11,6 +12,7 @@ import dev.ledger.ledger.LedgerService;
 import dev.ledger.ledger.NewJournalEntry;
 import dev.ledger.ledger.PostedEntry;
 import dev.ledger.ledger.Posting;
+import dev.ledger.outbox.OutboxWriter;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,10 +25,12 @@ public class RefundService {
 
     private final PaymentRepository payments;
     private final LedgerService ledger;
+    private final OutboxWriter outbox;
 
-    public RefundService(PaymentRepository payments, LedgerService ledger) {
+    public RefundService(PaymentRepository payments, LedgerService ledger, OutboxWriter outbox) {
         this.payments = payments;
         this.ledger = ledger;
+        this.outbox = outbox;
     }
 
     /**
@@ -55,6 +59,14 @@ public class RefundService {
 
         Payment after = new Payment(payment.id(), payment.walletAccountId(), payment.merchantId(),
                 payment.merchantAccountId(), payment.amount(), payment.refundedAmount() + refund, payment.createdAt());
+        // Keyed by the payment id, so a payment's events stay in order on one Kafka partition.
+        outbox.append("payment", payment.id(), "refund.completed", Map.of(
+                "refundId", posted.id(),
+                "paymentId", payment.id(),
+                "merchantId", payment.merchantId(),
+                "amount", refund,
+                "refundedAmount", after.refundedAmount(),
+                "paymentStatus", after.status()));
         return new RefundResult(posted.id(), payment.id(), refund, after.refundedAmount(), after.status(), posted.createdAt());
     }
 

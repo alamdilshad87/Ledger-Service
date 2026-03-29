@@ -2,6 +2,7 @@ package dev.ledger.payment;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import dev.ledger.account.Account;
@@ -14,6 +15,7 @@ import dev.ledger.ledger.LedgerService;
 import dev.ledger.ledger.NewJournalEntry;
 import dev.ledger.ledger.PostedEntry;
 import dev.ledger.ledger.Posting;
+import dev.ledger.outbox.OutboxWriter;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,11 +26,14 @@ public class PaymentService {
     private final AccountRepository accounts;
     private final PaymentRepository payments;
     private final LedgerService ledger;
+    private final OutboxWriter outbox;
 
-    public PaymentService(AccountRepository accounts, PaymentRepository payments, LedgerService ledger) {
+    public PaymentService(AccountRepository accounts, PaymentRepository payments, LedgerService ledger,
+                          OutboxWriter outbox) {
         this.accounts = accounts;
         this.payments = payments;
         this.ledger = ledger;
+        this.outbox = outbox;
     }
 
     @Transactional
@@ -46,6 +51,12 @@ public class PaymentService {
 
         Payment payment = new Payment(posted.id(), walletId, merchantId, merchantAccountId, amount, 0, posted.createdAt());
         payments.insert(payment);
+        outbox.append("payment", payment.id(), "payment.completed", Map.of(
+                "paymentId", payment.id(),
+                "walletAccountId", walletId,
+                "merchantId", merchantId,
+                "amount", amount,
+                "currency", wallet.currency()));
         return new PaymentResult(payment.id(), payment.status(), amount, posted.balanceOf(walletId), posted.createdAt());
     }
 
