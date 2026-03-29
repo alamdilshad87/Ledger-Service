@@ -2,14 +2,14 @@
 
 A double-entry payments ledger: INR wallets, transfers, merchant payments and refunds, built so money never appears or disappears and a retried request never charges twice.
 
-Status: **Week 4 — idempotency** (safe retries: replay, 409 in progress, 422 key reuse, Redis fast path).
+Status: **Week 5 — payments, refunds, outbox** (merchant payments, reversing refunds, events to Kafka via a transactional outbox).
 
 ## Quick start
 
 Requires Java 21 and Docker.
 
 ```bash
-docker compose up -d          # Postgres 16 + Redis 7
+docker compose up -d          # Postgres 16, Redis 7, Kafka 3.8 (single broker)
 ./mvnw spring-boot:run        # API on http://localhost:8080
 ```
 
@@ -47,6 +47,10 @@ Run the tests (they start their own Postgres with Testcontainers):
 | POST | `/v1/topups` | Add money to a wallet from the clearing account | 400, 404, 422 `NOT_A_WALLET` |
 | POST | `/v1/transfers` | Wallet to wallet | 402 `INSUFFICIENT_FUNDS`, 404, 422 `SAME_ACCOUNT` |
 | GET | `/v1/journal-entries/{id}` | One entry with all its postings | 404 `ENTRY_NOT_FOUND` |
+| POST | `/v1/merchants` | Create a merchant and its settlement account | 400 |
+| POST | `/v1/payments` | Wallet to merchant (`merchantId`, `amount`) | 402, 404 `MERCHANT_NOT_FOUND`, 422 `NOT_A_WALLET` |
+| GET | `/v1/payments/{id}` | Payment, its status and refunds | 404 `PAYMENT_NOT_FOUND` |
+| POST | `/v1/payments/{id}/refunds` | Refund part (`amount`) or all of what's left (`{}`) | 404, 422 `REFUND_EXCEEDS_PAYMENT`, 422 `PAYMENT_FULLY_REFUNDED` |
 
 Every money-moving POST needs an `Idempotency-Key` header (400 `MISSING_IDEMPOTENCY_KEY` without one). Retrying with the same key never moves money twice:
 
@@ -69,6 +73,8 @@ Errors always look like `{ "code": "...", "message": "...", "traceId": "..." }`.
 - **Cached balances:** `accounts.balance` is updated in the same transaction as the postings, and tests check it always equals the sum of that account's postings.
 - **Concurrency:** `LedgerService` locks every account in an entry with `SELECT … FOR UPDATE`, lowest id first, then checks balances under the lock (402 if a wallet would go negative). The fixed order prevents deadlocks; the `CHECK` constraint stays as a backstop. Before this, 200 simultaneous opposite-direction transfers produced 190 errors from deadlocks, and with the constraint removed a wallet went to −₹90. Full write-up with before/after numbers: [docs/concurrency.md](docs/concurrency.md).
 - **Idempotency:** `IdempotencyFilter` claims the key with `INSERT … ON CONFLICT` (the Postgres primary key is the real guarantee), then runs the request in one transaction that also marks the key COMPLETED. Money movement and stored response commit together, so an unfinished key always means no money moved: after a crash, a retry can safely take over the claim once its 60 s lease expires, and a claim token stops the old holder committing. Redis caches finished results for fast replays; if Redis is down, Postgres answers instead. Full design: [docs/idempotency.md](docs/idempotency.md).
+- **Refunds are reversing entries:** a REFUND entry moves money merchant → wallet and references the payment; the PAYMENT entry is never changed. The payment row is locked first, so concurrent refunds can't exceed the payment (50 parallel refunds of ₹10 on a ₹100 payment: exactly 10 succeed).
+- **Transactional outbox:** each money movement inserts its `*.completed` event into `outbox_events` in the same transaction, so the event exists exactly when the money moved. A relay publishes to Kafka every 500 ms with `FOR UPDATE SKIP LOCKED`, keyed by aggregate id (a payment and its refunds stay in order), at least once; consumers dedupe by `eventId`. Tested by killing the JVM between commit and publish: the event arrived ~0.5 s after restart, exactly once. Write-up: [docs/outbox.md](docs/outbox.md).
 
 ## Ledger invariants (tested)
 
