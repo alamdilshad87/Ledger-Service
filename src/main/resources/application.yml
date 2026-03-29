@@ -15,10 +15,34 @@ spring:
       timeout: 250ms
       connect-timeout: 250ms
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      properties:
+        enable.idempotence: true
+        # Fail a send within ~5 s so the relay retries on its next tick instead of hanging.
+        max.block.ms: 5000
+        request.timeout.ms: 4000
+        delivery.timeout.ms: 5000
+  task:
+    scheduling:
+      pool:
+        size: 2   # outbox relay + idempotency cleanup
+
 ledger:
   idempotency:
     ttl: 24h
     lease: 60s
+  outbox:
+    topic: ledger-events
+    batch-size: 100
+    send-timeout: 5s
+    relay:
+      enabled: true
+      interval: PT0.5S
 
 server:
   port: 8080

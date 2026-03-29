@@ -26,7 +26,9 @@ import org.testcontainers.utility.DockerImageName;
 /** Redis points at a port nothing listens on. Idempotency must still hold, just slower. */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-        properties = {"spring.data.redis.host=127.0.0.1", "spring.data.redis.port=1"})
+        properties = {"spring.data.redis.host=127.0.0.1", "spring.data.redis.port=1",
+                // No Kafka in this context: don't try to create topics or publish.
+                "ledger.outbox.relay.enabled=false", "spring.kafka.admin.auto-create=false"})
 @Import(RedisDownTest.PostgresOnly.class)
 class RedisDownTest {
 
