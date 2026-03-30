@@ -27,10 +27,16 @@ spring:
         max.block.ms: 5000
         request.timeout.ms: 4000
         delivery.timeout.ms: 5000
+    consumer:
+      group-id: webhook-dispatcher
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false   # offsets are committed by the listener container after processing
   task:
     scheduling:
       pool:
-        size: 2   # outbox relay + idempotency cleanup
+        size: 4   # outbox relay, webhook worker, idempotency cleanup, reconciliation
 
 ledger:
   idempotency:
@@ -43,6 +49,14 @@ ledger:
     relay:
       enabled: true
       interval: PT0.5S
+  webhooks:
+    max-attempts: 15      # waits 1 s, 2 s, 4 s … 2048 s, then 1 h: about 3 hours of retries before dead-lettering
+    base-delay: 1s
+    max-delay: 1h
+    poll-interval: PT1S
+    batch-size: 20
+    request-timeout: 5s
+    lease: 30s
 
 server:
   port: 8080

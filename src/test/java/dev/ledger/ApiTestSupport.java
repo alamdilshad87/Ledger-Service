@@ -20,7 +20,13 @@ import org.springframework.jdbc.core.simple.JdbcClient;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         // Concurrency tests open 200 connections in the same instant. Tomcat's default accept backlog
         // is 100, and Windows refuses (rather than queues) connections beyond it.
-        properties = "server.tomcat.accept-count=1000")
+        properties = {
+                "server.tomcat.accept-count=1000",
+                // Webhook retries in milliseconds instead of seconds-to-hours, so retry tests finish quickly.
+                "ledger.webhooks.base-delay=PT0.05S",
+                "ledger.webhooks.max-delay=PT0.4S",
+                "ledger.webhooks.poll-interval=PT0.1S",
+                "ledger.webhooks.max-attempts=25"})
 @Import(TestcontainersConfig.class)
 public abstract class ApiTestSupport {
 

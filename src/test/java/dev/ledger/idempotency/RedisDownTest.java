@@ -28,7 +28,8 @@ import org.testcontainers.utility.DockerImageName;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {"spring.data.redis.host=127.0.0.1", "spring.data.redis.port=1",
                 // No Kafka in this context: don't try to create topics or publish.
-                "ledger.outbox.relay.enabled=false", "spring.kafka.admin.auto-create=false"})
+                "ledger.outbox.relay.enabled=false", "spring.kafka.admin.auto-create=false",
+                "spring.kafka.listener.auto-startup=false"})
 @Import(RedisDownTest.PostgresOnly.class)
 class RedisDownTest {
 
