@@ -9,6 +9,7 @@ import java.util.UUID;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.ledger.common.GlobalExceptionHandler.ErrorResponse;
 import dev.ledger.common.IdempotencyKeys;
+import dev.ledger.common.RequestIds;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -209,7 +210,7 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        json.writeValue(response.getOutputStream(), new ErrorResponse(code, message, UUID.randomUUID().toString()));
+        json.writeValue(response.getOutputStream(), new ErrorResponse(code, message, RequestIds.current()));
     }
 
     private static String bodyOf(ContentCachingResponseWrapper response) {

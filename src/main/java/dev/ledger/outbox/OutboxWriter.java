@@ -7,6 +7,7 @@ import java.util.UUID;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.ledger.common.RequestIds;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -39,6 +40,8 @@ public class OutboxWriter {
         envelope.put("aggregateType", aggregateType);
         envelope.put("aggregateId", aggregateId);
         envelope.put("occurredAt", Instant.now().toString());
+        // The request that caused it, so a webhook can be traced back to the API call in the logs.
+        envelope.put("traceId", RequestIds.current());
         envelope.put("data", data);
 
         jdbc.sql("""

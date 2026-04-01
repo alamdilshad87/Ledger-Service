@@ -1,6 +1,5 @@
 package dev.ledger.common;
 
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -58,8 +57,7 @@ public class GlobalExceptionHandler {
     }
 
     private ResponseEntity<ErrorResponse> respond(HttpStatus status, String code, String message) {
-        // Replaced by a real per-request trace id when structured logging lands in week 7.
-        String traceId = UUID.randomUUID().toString();
-        return ResponseEntity.status(status).body(new ErrorResponse(code, message, traceId));
+        // The same id is in the X-Request-Id header and on every log line for this request.
+        return ResponseEntity.status(status).body(new ErrorResponse(code, message, RequestIds.current()));
     }
 }
