@@ -57,6 +57,11 @@ ledger:
     batch-size: 20
     request-timeout: 5s
     lease: 30s
+  reconciliation:
+    statement-dir: ${BANK_STATEMENT_DIR:bank-statements}
+    zone: Asia/Kolkata
+    cron: "0 30 2 * * *"     # 02:30 IST, for the previous day
+    fake-bank-enabled: true  # demo endpoint; turn off anywhere a real bank sends statements
 
 server:
   port: 8080

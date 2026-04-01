@@ -26,7 +26,10 @@ import org.springframework.jdbc.core.simple.JdbcClient;
                 "ledger.webhooks.base-delay=PT0.05S",
                 "ledger.webhooks.max-delay=PT0.4S",
                 "ledger.webhooks.poll-interval=PT0.1S",
-                "ledger.webhooks.max-attempts=25"})
+                "ledger.webhooks.max-attempts=25",
+                // Tests run reconciliation by hand; "-" disables the nightly cron so it can't fire mid-test.
+                "ledger.reconciliation.cron=-",
+                "ledger.reconciliation.statement-dir=target/test-bank-statements"})
 @Import(TestcontainersConfig.class)
 public abstract class ApiTestSupport {
 
