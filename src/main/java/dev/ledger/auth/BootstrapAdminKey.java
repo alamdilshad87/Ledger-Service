@@ -32,7 +32,8 @@ public class BootstrapAdminKey implements ApplicationRunner {
         if (bootstrapKey.length() < 32) {
             throw new IllegalStateException("ledger.auth.bootstrap-admin-key must be at least 32 characters");
         }
-        keys.ensure("bootstrap-admin", bootstrapKey, ApiClient.Role.ADMIN);
+        // Generous limits: this key also drives local load tests.
+        keys.ensure("bootstrap-admin", bootstrapKey, ApiClient.Role.ADMIN, 2_000, 5_000);
         log.info("Bootstrap admin API key registered");
     }
 }

@@ -3,7 +3,9 @@ package dev.ledger.auth;
 import java.util.UUID;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
@@ -29,7 +31,9 @@ public class ApiKeyController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ApiKeyService.CreatedKey create(@Valid @RequestBody CreateKeyRequest request) {
-        return keys.create(request.name().trim(), request.role());
+        return keys.create(request.name().trim(), request.role(),
+                request.ratePerSecond() == null ? 10 : request.ratePerSecond(),
+                request.burst() == null ? 20 : request.burst());
     }
 
     @DeleteMapping("/{id}")
@@ -38,6 +42,11 @@ public class ApiKeyController {
         keys.revoke(id);
     }
 
-    public record CreateKeyRequest(@NotBlank @Size(max = 100) String name, @NotNull ApiClient.Role role) {
+    /** Rate limit defaults: 10 requests/second sustained, bursts of up to 20. */
+    public record CreateKeyRequest(
+            @NotBlank @Size(max = 100) String name,
+            @NotNull ApiClient.Role role,
+            @Positive @Max(100_000) Integer ratePerSecond,
+            @Positive @Max(100_000) Integer burst) {
     }
 }
