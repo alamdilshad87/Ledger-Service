@@ -9,11 +9,14 @@ import dev.ledger.account.Account;
 import dev.ledger.account.AccountRepository;
 import dev.ledger.account.AccountType;
 import dev.ledger.common.InsufficientFundsException;
+import dev.ledger.common.LedgerMetrics;
 import dev.ledger.common.NotFoundException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * The only place money moves. In one transaction it:
@@ -29,10 +32,12 @@ public class LedgerService {
 
     private final JdbcClient jdbc;
     private final AccountRepository accounts;
+    private final LedgerMetrics metrics;
 
-    public LedgerService(JdbcClient jdbc, AccountRepository accounts) {
+    public LedgerService(JdbcClient jdbc, AccountRepository accounts, LedgerMetrics metrics) {
         this.jdbc = jdbc;
         this.accounts = accounts;
+        this.metrics = metrics;
     }
 
     @Transactional
@@ -41,9 +46,18 @@ public class LedgerService {
         for (Posting posting : entry.postings()) {
             Account account = locked.get(posting.accountId());
             if (account.type() == AccountType.USER_WALLET && account.balance() + posting.amount() < 0) {
+                metrics.insufficientFunds();
                 throw new InsufficientFundsException();
             }
         }
+        // Count the entry only once it has really committed; a rolled-back entry moved no money.
+        long moved = entry.postings().stream().mapToLong(Posting::amount).filter(a -> a > 0).sum();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                metrics.entryPosted(entry.type().name(), moved);
+            }
+        });
 
         OffsetDateTime createdAt = jdbc.sql("""
                         INSERT INTO journal_entries (id, type, reference_id, idempotency_key, note)

@@ -9,6 +9,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+import dev.ledger.common.LedgerMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -34,12 +35,15 @@ public class WebhookDeliveryWorker {
     private final JdbcClient jdbc;
     private final TransactionTemplate transaction;
     private final WebhookProperties properties;
+    private final LedgerMetrics metrics;
     private final HttpClient http;
 
-    public WebhookDeliveryWorker(JdbcClient jdbc, TransactionTemplate transaction, WebhookProperties properties) {
+    public WebhookDeliveryWorker(JdbcClient jdbc, TransactionTemplate transaction, WebhookProperties properties,
+                                 LedgerMetrics metrics) {
         this.jdbc = jdbc;
         this.transaction = transaction;
         this.properties = properties;
+        this.metrics = metrics;
         this.http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(2))
                 .followRedirects(HttpClient.Redirect.NEVER)   // a redirect could point a signed payload anywhere
@@ -121,6 +125,7 @@ public class WebhookDeliveryWorker {
                         WHERE id = :id AND status = 'PENDING'
                         """)
                 .param("id", id).param("status", status).update();
+        metrics.webhookAttempt("delivered");
     }
 
     private void recordFailure(Due delivery, Integer status, String error) {
@@ -138,9 +143,11 @@ public class WebhookDeliveryWorker {
             }
             if (attempts >= properties.maxAttempts()) {
                 deadLetter(delivery.id());
+                metrics.webhookAttempt("dead");
                 log.warn("Webhook {} for event {} dead-lettered after {} attempts: {}", delivery.id(), delivery.eventId(),
                         attempts, error);
             } else {
+                metrics.webhookAttempt("failed");
                 Duration wait = properties.backoffAfter(attempts);
                 jdbc.sql("""
                                 UPDATE webhook_deliveries

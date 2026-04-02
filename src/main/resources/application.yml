@@ -77,4 +77,18 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # Unauthenticated, like health. In production put actuator on a separate management port
+        # that only Prometheus can reach (management.server.port).
+        include: health,info,prometheus
+  metrics:
+    tags:
+      application: ledger-service
+    distribution:
+      # Histogram buckets so Prometheus can compute p50/p95/p99 across instances with histogram_quantile().
+      percentiles-histogram:
+        http.server.requests: true
+        ledger.outbox.publish.lag: true
+      minimum-expected-value:
+        http.server.requests: 1ms
+      maximum-expected-value:
+        http.server.requests: 10s

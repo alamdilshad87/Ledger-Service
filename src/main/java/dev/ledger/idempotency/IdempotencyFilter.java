@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.ledger.auth.ApiClient;
 import dev.ledger.common.GlobalExceptionHandler.ErrorResponse;
 import dev.ledger.common.IdempotencyKeys;
+import dev.ledger.common.LedgerMetrics;
 import dev.ledger.common.RequestIds;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -57,15 +58,18 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     private final IdempotencyProperties properties;
     private final TransactionTemplate transaction;
     private final ObjectMapper json;
+    private final LedgerMetrics metrics;
 
     public IdempotencyFilter(IdempotencyStore store, IdempotencyCache cache, RequestFingerprint fingerprint,
-                             IdempotencyProperties properties, TransactionTemplate transaction, ObjectMapper json) {
+                             IdempotencyProperties properties, TransactionTemplate transaction, ObjectMapper json,
+                             LedgerMetrics metrics) {
         this.store = store;
         this.cache = cache;
         this.fingerprint = fingerprint;
         this.properties = properties;
         this.transaction = transaction;
         this.json = json;
+        this.metrics = metrics;
     }
 
     @Override
@@ -97,6 +101,7 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         Optional<IdempotencyCache.CachedResult> cached = cache.get(key);
         if (cached.isPresent()) {
             if (cached.get().requestHash().equals(requestHash)) {
+                metrics.idempotentReplay("redis");
                 replay(response, cached.get().status(), cached.get().body());
             } else {
                 writeKeyReused(response);
@@ -130,8 +135,10 @@ public class IdempotencyFilter extends OncePerRequestFilter {
         if (!record.requestHash().equals(requestHash)) {
             writeKeyReused(response);
         } else if (record.status() == IdempotencyStore.Status.IN_PROGRESS) {
+            metrics.idempotencyConflict("in_progress");
             writeError(response, 409, "REQUEST_IN_PROGRESS", "A request with this key is being processed; retry shortly");
         } else {
+            metrics.idempotentReplay("postgres");
             // Redis missed (evicted, restarted or down): refill it for the next retry.
             cache.put(key, new IdempotencyCache.CachedResult(record.requestHash(), record.responseCode(),
                     record.responseBody()), properties.ttl());
@@ -140,6 +147,7 @@ public class IdempotencyFilter extends OncePerRequestFilter {
     }
 
     private void writeKeyReused(HttpServletResponse response) throws IOException {
+        metrics.idempotencyConflict("key_reused");
         writeError(response, 422, "IDEMPOTENCY_KEY_REUSED", "This Idempotency-Key was already used for a different request");
     }
 

@@ -4,6 +4,7 @@ import java.io.IOException;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.ledger.common.ErrorResponses;
+import dev.ledger.common.LedgerMetrics;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,10 +21,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
     private final RateLimiter limiter;
     private final ObjectMapper json;
+    private final LedgerMetrics metrics;
 
-    public RateLimitFilter(RateLimiter limiter, ObjectMapper json) {
+    public RateLimitFilter(RateLimiter limiter, ObjectMapper json, LedgerMetrics metrics) {
         this.limiter = limiter;
         this.json = json;
+        this.metrics = metrics;
     }
 
     @Override
@@ -39,6 +42,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
             response.setHeader("X-RateLimit-Remaining", String.valueOf(decision.remaining()));
         }
         if (!decision.allowed()) {
+            metrics.rateLimited(client.name());
             response.setHeader("Retry-After", String.valueOf(Math.max(1, (decision.retryAfterMs() + 999) / 1000)));
             ErrorResponses.write(response, json, 429, "RATE_LIMITED",
                     "Rate limit of " + client.ratePerSecond() + " requests/second exceeded");

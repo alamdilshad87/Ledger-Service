@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.http.HttpRequest;
 import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
@@ -41,6 +42,8 @@ import org.springframework.jdbc.core.simple.JdbcClient;
                 "ledger.reconciliation.statement-dir=target/test-bank-statements",
                 "ledger.auth.bootstrap-admin-key=" + ApiTestSupport.ADMIN_KEY})
 @Import(TestcontainersConfig.class)
+// Spring Boot tests switch metric export off by default; keep it on so /actuator/prometheus exists.
+@AutoConfigureObservability(tracing = false)
 public abstract class ApiTestSupport {
 
     /** Registered at startup by BootstrapAdminKey and sent on every test request unless one is already set. */

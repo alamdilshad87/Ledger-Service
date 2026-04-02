@@ -1,10 +1,12 @@
 package dev.ledger.outbox;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+import dev.ledger.common.LedgerMetrics;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,13 +33,15 @@ public class OutboxRelay {
     private final KafkaTemplate<String, String> kafka;
     private final TransactionTemplate transaction;
     private final OutboxProperties properties;
+    private final LedgerMetrics metrics;
 
     public OutboxRelay(JdbcClient jdbc, KafkaTemplate<String, String> kafka, TransactionTemplate transaction,
-                       OutboxProperties properties) {
+                       OutboxProperties properties, LedgerMetrics metrics) {
         this.jdbc = jdbc;
         this.kafka = kafka;
         this.transaction = transaction;
         this.properties = properties;
+        this.metrics = metrics;
     }
 
     /** Sends up to one batch and returns how many events were published. */
@@ -70,8 +74,12 @@ public class OutboxRelay {
                     break;
                 }
                 // clock_timestamp(), not now(): now() is the transaction's start time, which would understate lag.
-                jdbc.sql("UPDATE outbox_events SET published_at = clock_timestamp() WHERE id = :id")
-                        .param("id", row.id()).update();
+                double lagSeconds = jdbc.sql("""
+                                UPDATE outbox_events SET published_at = clock_timestamp() WHERE id = :id
+                                RETURNING EXTRACT(EPOCH FROM published_at - created_at)
+                                """)
+                        .param("id", row.id()).query(Double.class).single();
+                metrics.outboxPublished(Duration.ofMillis(Math.round(lagSeconds * 1000)));
                 sent++;
             }
             return sent;
