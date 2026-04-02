@@ -1,0 +1,158 @@
+{
+  "uid": "ledger-service",
+  "title": "Ledger Service",
+  "tags": ["ledger"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "Requests / s",
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 1 } },
+      "targets": [{ "refId": "A", "expr": "sum(rate(http_server_requests_seconds_count{uri=~\"/v1/.*\"}[1m]))" }]
+    },
+    {
+      "id": 2, "type": "stat", "title": "p99 latency (all /v1)",
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 3,
+        "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 0.25 }, { "color": "red", "value": 1 } ] } } },
+      "targets": [{ "refId": "A", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{uri=~\"/v1/.*\"}[1m])))" }]
+    },
+    {
+      "id": 3, "type": "stat", "title": "Failed transfers (last 5m)",
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short", "decimals": 0,
+        "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 1 } ] } } },
+      "targets": [{ "refId": "A", "expr": "sum(increase(http_server_requests_seconds_count{uri=\"/v1/transfers\",outcome!=\"SUCCESS\"}[5m])) or vector(0)" }]
+    },
+    {
+      "id": 4, "type": "stat", "title": "Outbox backlog",
+      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short",
+        "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "orange", "value": 100 }, { "color": "red", "value": 1000 } ] } } },
+      "targets": [{ "refId": "A", "expr": "sum(ledger_outbox_pending)" }]
+    },
+    {
+      "id": 5, "type": "stat", "title": "Webhooks pending",
+      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [{ "refId": "A", "expr": "sum(ledger_webhooks_pending)" }]
+    },
+    {
+      "id": 6, "type": "stat", "title": "Last reconciliation mismatches",
+      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short",
+        "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] } } },
+      "targets": [{ "refId": "A", "expr": "max(ledger_reconciliation_last_mismatches)" }]
+    },
+    {
+      "id": 10, "type": "timeseries", "title": "Throughput by endpoint (req/s)",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [{ "refId": "A", "legendFormat": "{{method}} {{uri}}",
+        "expr": "sum by (method, uri) (rate(http_server_requests_seconds_count{uri=~\"/v1/.*\"}[1m]))" }]
+    },
+    {
+      "id": 11, "type": "timeseries", "title": "Latency p50 / p95 / p99 (all /v1)",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "refId": "A", "legendFormat": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(http_server_requests_seconds_bucket{uri=~\"/v1/.*\"}[1m])))" },
+        { "refId": "B", "legendFormat": "p95", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{uri=~\"/v1/.*\"}[1m])))" },
+        { "refId": "C", "legendFormat": "p99", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{uri=~\"/v1/.*\"}[1m])))" }
+      ]
+    },
+    {
+      "id": 12, "type": "timeseries", "title": "Transfers by status (req/s)",
+      "gridPos": { "x": 0, "y": 12, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" } },
+      "targets": [{ "refId": "A", "legendFormat": "{{status}}",
+        "expr": "sum by (status) (rate(http_server_requests_seconds_count{uri=\"/v1/transfers\"}[1m]))" }]
+    },
+    {
+      "id": 13, "type": "timeseries", "title": "Entries posted by type (/s) and declined",
+      "gridPos": { "x": 8, "y": 12, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        { "refId": "A", "legendFormat": "{{type}}", "expr": "sum by (type) (rate(ledger_entries_posted_total[1m]))" },
+        { "refId": "B", "legendFormat": "declined: {{reason}}", "expr": "sum by (reason) (rate(ledger_entries_declined_total[1m]))" }
+      ]
+    },
+    {
+      "id": 14, "type": "timeseries", "title": "Money moved (₹/s)",
+      "gridPos": { "x": 16, "y": 12, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "currencyINR" } },
+      "targets": [{ "refId": "A", "legendFormat": "{{type}}", "expr": "sum by (type) (rate(ledger_money_moved_paise_total[1m])) / 100" }]
+    },
+    {
+      "id": 15, "type": "timeseries", "title": "Outbox: backlog and oldest event age",
+      "gridPos": { "x": 0, "y": 20, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" },
+        "overrides": [ { "matcher": { "id": "byName", "options": "oldest age" }, "properties": [ { "id": "unit", "value": "s" }, { "id": "custom.axisPlacement", "value": "right" } ] } ] },
+      "targets": [
+        { "refId": "A", "legendFormat": "pending events", "expr": "sum(ledger_outbox_pending)" },
+        { "refId": "B", "legendFormat": "oldest age", "expr": "max(ledger_outbox_oldest_pending_age_seconds)" }
+      ]
+    },
+    {
+      "id": 16, "type": "timeseries", "title": "Outbox publish lag (commit → Kafka ack)",
+      "gridPos": { "x": 8, "y": 20, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "refId": "A", "legendFormat": "p50", "expr": "histogram_quantile(0.50, sum by (le) (rate(ledger_outbox_publish_lag_seconds_bucket[1m])))" },
+        { "refId": "B", "legendFormat": "p99", "expr": "histogram_quantile(0.99, sum by (le) (rate(ledger_outbox_publish_lag_seconds_bucket[1m])))" }
+      ]
+    },
+    {
+      "id": 17, "type": "timeseries", "title": "Webhook attempts by outcome (/s)",
+      "gridPos": { "x": 16, "y": 20, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [{ "refId": "A", "legendFormat": "{{outcome}}", "expr": "sum by (outcome) (rate(ledger_webhooks_attempts_total[1m]))" }]
+    },
+    {
+      "id": 18, "type": "timeseries", "title": "Idempotency: replays and conflicts (/s)",
+      "gridPos": { "x": 0, "y": 28, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [
+        { "refId": "A", "legendFormat": "replay from {{source}}", "expr": "sum by (source) (rate(ledger_idempotency_replays_total[1m]))" },
+        { "refId": "B", "legendFormat": "conflict: {{type}}", "expr": "sum by (type) (rate(ledger_idempotency_conflicts_total[1m]))" }
+      ]
+    },
+    {
+      "id": 19, "type": "timeseries", "title": "Rate-limited requests by client (/s)",
+      "gridPos": { "x": 8, "y": 28, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "ops" } },
+      "targets": [{ "refId": "A", "legendFormat": "{{client}}", "expr": "sum by (client) (rate(ledger_ratelimit_rejected_total[1m]))" }]
+    },
+    {
+      "id": 20, "type": "timeseries", "title": "DB connections (Hikari)",
+      "gridPos": { "x": 16, "y": 28, "w": 8, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        { "refId": "A", "legendFormat": "active", "expr": "sum(hikaricp_connections_active)" },
+        { "refId": "B", "legendFormat": "waiting for a connection", "expr": "sum(hikaricp_connections_pending)" },
+        { "refId": "C", "legendFormat": "max", "expr": "sum(hikaricp_connections_max)" }
+      ]
+    }
+  ]
+}
