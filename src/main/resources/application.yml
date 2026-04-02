@@ -39,6 +39,9 @@ spring:
         size: 4   # outbox relay, webhook worker, idempotency cleanup, reconciliation
 
 ledger:
+  auth:
+    # First admin key, registered at startup if set. Create real keys with it, then unset it.
+    bootstrap-admin-key: ${LEDGER_ADMIN_API_KEY:}
   idempotency:
     ttl: 24h
     lease: 60s

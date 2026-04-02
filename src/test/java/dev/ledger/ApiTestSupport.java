@@ -1,9 +1,18 @@
 package dev.ledger;
 
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpRequest;
+import org.springframework.http.client.ClientHttpRequestExecution;
+import org.springframework.http.client.ClientHttpRequestInterceptor;
+import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.context.annotation.Import;
@@ -29,9 +38,13 @@ import org.springframework.jdbc.core.simple.JdbcClient;
                 "ledger.webhooks.max-attempts=25",
                 // Tests run reconciliation by hand; "-" disables the nightly cron so it can't fire mid-test.
                 "ledger.reconciliation.cron=-",
-                "ledger.reconciliation.statement-dir=target/test-bank-statements"})
+                "ledger.reconciliation.statement-dir=target/test-bank-statements",
+                "ledger.auth.bootstrap-admin-key=" + ApiTestSupport.ADMIN_KEY})
 @Import(TestcontainersConfig.class)
 public abstract class ApiTestSupport {
+
+    /** Registered at startup by BootstrapAdminKey and sent on every test request unless one is already set. */
+    public static final String ADMIN_KEY = "lk_test_admin_key_for_tests_only_000000000000";
 
     protected static final ParameterizedTypeReference<Map<String, Object>> JSON = new ParameterizedTypeReference<>() {
     };
@@ -41,6 +54,27 @@ public abstract class ApiTestSupport {
 
     @Autowired
     protected JdbcClient jdbc;
+
+    @BeforeEach
+    void authenticateTestRequests() {
+        RestTemplate rest = http.getRestTemplate();
+        if (rest.getInterceptors().stream().noneMatch(i -> i instanceof AdminKeyInterceptor)) {
+            List<ClientHttpRequestInterceptor> interceptors = new ArrayList<>(rest.getInterceptors());
+            interceptors.add(new AdminKeyInterceptor());
+            rest.setInterceptors(interceptors);
+        }
+    }
+
+    private static final class AdminKeyInterceptor implements ClientHttpRequestInterceptor {
+        @Override
+        public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
+                throws IOException {
+            if (!request.getHeaders().containsKey(HttpHeaders.AUTHORIZATION)) {
+                request.getHeaders().setBearerAuth(ADMIN_KEY);
+            }
+            return execution.execute(request, body);
+        }
+    }
 
     /** POST with a fresh random idempotency key. */
     protected ResponseEntity<Map<String, Object>> post(String path, Object body) {

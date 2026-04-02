@@ -29,7 +29,8 @@ import org.testcontainers.utility.DockerImageName;
         properties = {"spring.data.redis.host=127.0.0.1", "spring.data.redis.port=1",
                 // No Kafka in this context: don't try to create topics or publish.
                 "ledger.outbox.relay.enabled=false", "spring.kafka.admin.auto-create=false",
-                "spring.kafka.listener.auto-startup=false"})
+                "spring.kafka.listener.auto-startup=false",
+                "ledger.auth.bootstrap-admin-key=" + dev.ledger.ApiTestSupport.ADMIN_KEY})
 @Import(RedisDownTest.PostgresOnly.class)
 class RedisDownTest {
 
@@ -54,6 +55,7 @@ class RedisDownTest {
     private ResponseEntity<Map<String, Object>> post(String path, Object body, String key) {
         HttpHeaders headers = new HttpHeaders();
         headers.set("Idempotency-Key", key);
+        headers.setBearerAuth(dev.ledger.ApiTestSupport.ADMIN_KEY);
         return http.exchange(path, HttpMethod.POST, new HttpEntity<>(body, headers), JSON);
     }
 

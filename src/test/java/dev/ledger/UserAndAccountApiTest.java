@@ -6,30 +6,19 @@ import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Import(TestcontainersConfig.class)
-class UserAndAccountApiTest {
+class UserAndAccountApiTest extends ApiTestSupport {
 
-    @Autowired
-    TestRestTemplate http;
-
-    @SuppressWarnings("rawtypes")
     @Test
     void createUserGivesAnEmptyInrWallet() {
         String email = "asha-" + UUID.randomUUID() + "@example.com";
 
-        ResponseEntity<Map> created = http.postForEntity("/v1/users", Map.of("email", email), Map.class);
+        var created = post("/v1/users", Map.of("email", email));
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        Number walletId = (Number) created.getBody().get("walletAccountId");
+        long walletId = asLong(created.getBody().get("walletAccountId"));
 
-        ResponseEntity<Map> account = http.getForEntity("/v1/accounts/" + walletId, Map.class);
+        var account = get("/v1/accounts/" + walletId);
         assertThat(account.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(account.getBody())
                 .containsEntry("type", "USER_WALLET")
@@ -38,29 +27,26 @@ class UserAndAccountApiTest {
                 .containsEntry("ownerId", created.getBody().get("userId"));
     }
 
-    @SuppressWarnings("rawtypes")
     @Test
     void duplicateEmailIsRejectedCaseInsensitively() {
         String email = "ravi-" + UUID.randomUUID() + "@example.com";
-        http.postForEntity("/v1/users", Map.of("email", email), Map.class);
+        post("/v1/users", Map.of("email", email));
 
-        ResponseEntity<Map> again = http.postForEntity("/v1/users", Map.of("email", email.toUpperCase()), Map.class);
+        var again = post("/v1/users", Map.of("email", email.toUpperCase()));
         assertThat(again.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(again.getBody()).containsEntry("code", "EMAIL_EXISTS").containsKey("traceId");
     }
 
-    @SuppressWarnings("rawtypes")
     @Test
     void invalidEmailIs400() {
-        ResponseEntity<Map> response = http.postForEntity("/v1/users", Map.of("email", "not-an-email"), Map.class);
+        var response = post("/v1/users", Map.of("email", "not-an-email"));
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody()).containsEntry("code", "VALIDATION_FAILED");
     }
 
-    @SuppressWarnings("rawtypes")
     @Test
     void unknownAccountIs404() {
-        ResponseEntity<Map> response = http.getForEntity("/v1/accounts/999999999", Map.class);
+        var response = get("/v1/accounts/999999999");
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(response.getBody()).containsEntry("code", "ACCOUNT_NOT_FOUND");
     }
