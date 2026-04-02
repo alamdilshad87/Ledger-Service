@@ -20,13 +20,13 @@ class IdempotencyCleanupTest extends ApiTestSupport {
     StringRedisTemplate redis;
 
     private boolean exists(String key) {
-        return jdbc.sql("SELECT COUNT(*) FROM idempotency_keys WHERE key = :k").param("k", key)
+        return jdbc.sql("SELECT COUNT(*) FROM idempotency_keys WHERE key = :k").param("k", storedIdempotencyKey(key))
                 .query(Long.class).single() == 1;
     }
 
     private void age(String key, String interval) {
         jdbc.sql("UPDATE idempotency_keys SET created_at = now() - CAST(:i AS interval) WHERE key = :k")
-                .param("i", interval).param("k", key).update();
+                .param("i", interval).param("k", storedIdempotencyKey(key)).update();
     }
 
     @Test
@@ -53,7 +53,7 @@ class IdempotencyCleanupTest extends ApiTestSupport {
         post("/v1/topups", body, key);
         age(key, "25 hours");
         cleanup.purgeExpired();
-        redis.delete("idem:" + key);   // Redis would have expired it on its own by now
+        redis.delete("idem:" + storedIdempotencyKey(key));   // Redis would have expired it on its own by now
 
         var reused = post("/v1/topups", body, key);
 

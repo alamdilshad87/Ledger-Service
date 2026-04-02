@@ -114,6 +114,12 @@ public abstract class ApiTestSupport {
         return wallet;
     }
 
+    /** How an Idempotency-Key sent with the test admin key is stored: "<api key id>:<key>". */
+    protected String storedIdempotencyKey(String clientKey) {
+        String adminId = jdbc.sql("SELECT id::text FROM api_keys WHERE name = 'bootstrap-admin'").query(String.class).single();
+        return adminId + ":" + clientKey;
+    }
+
     /** Creates a merchant and returns {merchantId, accountId}. */
     protected Merchant newMerchant() {
         var created = post("/v1/merchants", Map.of("name", "Merchant " + UUID.randomUUID().toString().substring(0, 8)));

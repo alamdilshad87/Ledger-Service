@@ -164,7 +164,7 @@ class IdempotencyApiTest extends ApiTestSupport {
     private void insertClaim(String key, String hash, String lockedAtSql) {
         jdbc.sql("INSERT INTO idempotency_keys (key, request_hash, status, claim_token, locked_at) "
                         + "VALUES (:key, :hash, 'IN_PROGRESS', :token, " + lockedAtSql + ")")
-                .param("key", key)
+                .param("key", storedIdempotencyKey(key))
                 .param("hash", hash)
                 .param("token", UUID.randomUUID())
                 .update();

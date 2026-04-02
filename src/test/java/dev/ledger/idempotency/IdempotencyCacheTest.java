@@ -23,8 +23,8 @@ class IdempotencyCacheTest extends ApiTestSupport {
 
         post("/v1/transfers", Map.of("fromAccountId", asha, "toAccountId", newWallet(), "amount", 100), key);
 
-        assertThat(redis.opsForValue().get("idem:" + key)).contains("\"status\":201");
-        assertThat(redis.getExpire("idem:" + key)).isBetween(23 * 3600L, 24 * 3600L);
+        assertThat(redis.opsForValue().get("idem:" + storedIdempotencyKey(key))).contains("\"status\":201");
+        assertThat(redis.getExpire("idem:" + storedIdempotencyKey(key))).isBetween(23 * 3600L, 24 * 3600L);
     }
 
     @Test
@@ -36,7 +36,7 @@ class IdempotencyCacheTest extends ApiTestSupport {
         var first = post("/v1/transfers", body, key);
 
         // Remove the Postgres row: only Redis can answer now.
-        jdbc.sql("DELETE FROM idempotency_keys WHERE key = :k").param("k", key).update();
+        jdbc.sql("DELETE FROM idempotency_keys WHERE key = :k").param("k", storedIdempotencyKey(key)).update();
         var retry = post("/v1/transfers", body, key);
 
         assertThat(retry.getHeaders().getFirst("Idempotent-Replayed")).isEqualTo("true");
@@ -65,11 +65,11 @@ class IdempotencyCacheTest extends ApiTestSupport {
         var body = Map.of("fromAccountId", asha, "toAccountId", ravi, "amount", 100);
         post("/v1/transfers", body, key);
 
-        redis.delete("idem:" + key);   // as if Redis restarted or evicted it
+        redis.delete("idem:" + storedIdempotencyKey(key));   // as if Redis restarted or evicted it
         var retry = post("/v1/transfers", body, key);
 
         assertThat(retry.getHeaders().getFirst("Idempotent-Replayed")).isEqualTo("true");
         assertThat(balanceOf(asha)).isEqualTo(9_900);
-        assertThat(redis.hasKey("idem:" + key)).isTrue();
+        assertThat(redis.hasKey("idem:" + storedIdempotencyKey(key))).isTrue();
     }
 }

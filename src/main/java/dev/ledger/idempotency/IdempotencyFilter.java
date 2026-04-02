@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.ledger.auth.ApiClient;
 import dev.ledger.common.GlobalExceptionHandler.ErrorResponse;
 import dev.ledger.common.IdempotencyKeys;
 import dev.ledger.common.RequestIds;
@@ -86,6 +87,9 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             return;
         }
 
+        // Keys are per caller: two API clients choosing the same key must not see each other's responses.
+        key = scopeToCaller(httpRequest, key);
+
         CachedBodyRequest request = new CachedBodyRequest(httpRequest);
         String requestHash = fingerprint.of(request.getMethod(), request.getRequestURI(), request.body());
 
@@ -106,6 +110,13 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             return;
         }
         runOnce(key, requestHash, claim.get(), request, response, chain);
+    }
+
+    /** "<api key id>:<client key>". The auth filter runs first and always sets the caller on /v1 paths. */
+    private static String scopeToCaller(HttpServletRequest request, String clientKey) {
+        Object client = request.getAttribute(ApiClient.ATTRIBUTE);
+        String scope = client instanceof ApiClient c ? c.id().toString() : "anonymous";
+        return scope + ":" + clientKey;
     }
 
     private void respondToExistingKey(String key, String requestHash, HttpServletResponse response) throws IOException {
