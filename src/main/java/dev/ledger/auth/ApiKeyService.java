@@ -4,11 +4,15 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.util.HexFormat;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import dev.ledger.common.NotFoundException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 
@@ -18,10 +22,26 @@ public class ApiKeyService {
     private static final SecureRandom RANDOM = new SecureRandom();
     static final String KEY_PREFIX = "lk_";
 
-    private final JdbcClient jdbc;
+    /** Upper bound on cached lookups; past it the cache is simply cleared (keys are few, attackers' guesses many). */
+    private static final int MAX_CACHED = 10_000;
 
-    public ApiKeyService(JdbcClient jdbc) {
+    private final JdbcClient jdbc;
+    private final long cacheTtlNanos;
+    private final Map<String, CachedLookup> cache = new ConcurrentHashMap<>();
+
+    /**
+     * Authentication runs on every request, and under load it was the biggest single queue for database
+     * connections (docs/operations.md). Lookups are cached in memory for a short TTL (30 s by default):
+     * a revoked key keeps working on <em>other</em> instances for up to that long; on this instance
+     * {@link #revoke} evicts it at once. Unknown keys are cached too, so a flood of bad keys can't hammer
+     * the database.
+     */
+    public ApiKeyService(JdbcClient jdbc, @Value("${ledger.auth.key-cache-ttl:30s}") Duration cacheTtl) {
         this.jdbc = jdbc;
+        this.cacheTtlNanos = cacheTtl.toNanos();
+    }
+
+    private record CachedLookup(Optional<ApiClient> client, long expiresAt) {
     }
 
     /** Creates a key and returns it in full. This is the only time the plain key exists outside the caller. */
@@ -43,9 +63,24 @@ public class ApiKeyService {
         if (key == null || key.length() < 16 || key.length() > 200) {
             return Optional.empty();
         }
+        String hash = hash(key);
+        long now = System.nanoTime();
+        CachedLookup cached = cache.get(hash);
+        if (cached != null && now - cached.expiresAt() < 0) {
+            return cached.client();
+        }
+        Optional<ApiClient> client = lookup(hash);
+        if (cache.size() >= MAX_CACHED) {
+            cache.clear();
+        }
+        cache.put(hash, new CachedLookup(client, now + cacheTtlNanos));
+        return client;
+    }
+
+    private Optional<ApiClient> lookup(String hash) {
         // Looked up by hash: an index lookup on a value an attacker can't choose to collide.
         return jdbc.sql("SELECT id, name, role, rate_per_second, burst FROM api_keys WHERE key_hash = :hash AND active")
-                .param("hash", hash(key))
+                .param("hash", hash)
                 .query((rs, n) -> new ApiClient(rs.getObject("id", UUID.class), rs.getString("name"),
                         ApiClient.Role.valueOf(rs.getString("role")), rs.getInt("rate_per_second"), rs.getInt("burst")))
                 .optional();
@@ -57,6 +92,7 @@ public class ApiKeyService {
         if (updated == 0) {
             throw new NotFoundException("API_KEY_NOT_FOUND", "No active API key " + id);
         }
+        cache.values().removeIf(c -> c.client().map(client -> client.id().equals(id)).orElse(false));
     }
 
     private void insert(UUID id, String name, String key, ApiClient.Role role, int ratePerSecond, int burst,
