@@ -3,8 +3,9 @@ global:
   evaluation_interval: 5s
 
 scrape_configs:
-  # The app runs on the host (./mvnw spring-boot:run or java -jar), not in Compose.
+  # The app runs either in Compose (app:8080) or on the host (host.docker.internal:8080).
+  # Whichever isn't running just shows as down; dashboards sum over both.
   - job_name: ledger-service
     metrics_path: /actuator/prometheus
     static_configs:
-      - targets: ["host.docker.internal:8080"]
+      - targets: ["app:8080", "host.docker.internal:8080"]

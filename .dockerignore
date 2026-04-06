@@ -1,0 +1,7 @@
+target/
+.git/
+.idea/
+.vscode/
+bank-statements/
+load/results/
+*.log
