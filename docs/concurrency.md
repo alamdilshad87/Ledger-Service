@@ -28,6 +28,8 @@ Two separate bugs:
 
 `LedgerService.post` now starts every entry by locking each account with `SELECT … FOR UPDATE`, **lowest account id first**, and checks balances against those locked rows.
 
+> **Update (week 7):** only *user wallets* are locked up front now. Locking the merchant and clearing accounts as well made every payment and top-up queue for those few hot rows while holding wallet locks, which collapsed throughput at about 40 req/s. House accounts have no balance check, so their balance is now updated last and their row lock is held only until commit. The lock order stays global (wallets by id, then house accounts by id), so the deadlock argument below still holds. Details and measurements: [operations.md](operations.md#found-while-testing-throughput-collapsed-on-hot-accounts-at-40-reqs-fixed).
+
 - The lock means no other transaction can change the balance between the check and the write, so the check is real.
 - The single global order means two transactions that need the same rows queue behind each other instead of each holding half. A deadlock needs a cycle; a fixed order makes a cycle impossible.
 - The check lives in the ledger, not in each caller, so top-ups, transfers and future payments all get it.
