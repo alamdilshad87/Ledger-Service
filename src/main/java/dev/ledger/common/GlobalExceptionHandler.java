@@ -50,6 +50,12 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     ResponseEntity<ErrorResponse> handleUnexpected(Exception e) {
+        if (Overload.isPoolExhausted(e)) {
+            log.warn("No database connection available in time; answering 503");
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .header("Retry-After", Overload.RETRY_AFTER_SECONDS)
+                    .body(new ErrorResponse(Overload.CODE, Overload.MESSAGE, RequestIds.current()));
+        }
         ResponseEntity<ErrorResponse> response =
                 respond(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_ERROR", "Something went wrong");
         log.error("Unhandled error traceId={}", response.getBody().traceId(), e);

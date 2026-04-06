@@ -11,6 +11,7 @@ import dev.ledger.auth.ApiClient;
 import dev.ledger.common.GlobalExceptionHandler.ErrorResponse;
 import dev.ledger.common.IdempotencyKeys;
 import dev.ledger.common.LedgerMetrics;
+import dev.ledger.common.Overload;
 import dev.ledger.common.RequestIds;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -180,17 +181,23 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             buffered.copyBodyToResponse();
             return;
         } catch (ChainFailure e) {
-            store.release(key, claim);
+            releaseQuietly(key, claim);
             if (e.getCause() instanceof IOException io) {
                 throw io;
             }
             throw (ServletException) e.getCause();
         } catch (RuntimeException e) {
-            // e.g. the commit itself failed: the transaction rolled back, so no money moved.
-            log.error("Request with Idempotency-Key {} failed; key released", key, e);
-            store.release(key, claim);
+            // The transaction never started or rolled back, so no money moved: give the key back.
+            releaseQuietly(key, claim);
             buffered.resetBuffer();
-            writeError(buffered, 500, "INTERNAL_ERROR", "Something went wrong; retry with the same Idempotency-Key");
+            if (Overload.isPoolExhausted(e)) {
+                log.warn("No database connection for Idempotency-Key {}; answering 503", key);
+                buffered.setHeader("Retry-After", Overload.RETRY_AFTER_SECONDS);
+                writeError(buffered, 503, Overload.CODE, Overload.MESSAGE);
+            } else {
+                log.error("Request with Idempotency-Key {} failed; key released", key, e);
+                writeError(buffered, 500, "INTERNAL_ERROR", "Something went wrong; retry with the same Idempotency-Key");
+            }
             buffered.copyBodyToResponse();
             return;
         }
@@ -202,7 +209,7 @@ public class IdempotencyFilter extends OncePerRequestFilter {
                 completed = store.complete(key, claim, status, bodyOf(buffered));
             } else {
                 // 400s and 5xx: nothing happened, let the client retry with the same key.
-                store.release(key, claim);
+                releaseQuietly(key, claim);
             }
         }
         if (completed) {
@@ -210,6 +217,32 @@ public class IdempotencyFilter extends OncePerRequestFilter {
             cache.put(key, new IdempotencyCache.CachedResult(requestHash, status, bodyOf(buffered)), properties.ttl());
         }
         buffered.copyBodyToResponse();
+    }
+
+    /**
+     * Releasing needs a database connection too, so under overload it can fail; it is retried a few times.
+     * If it still fails, the key stays IN_PROGRESS until its lease expires (60 s): retries get 409 until
+     * then, and the first retry after takes the claim over. No money moved either way.
+     */
+    private void releaseQuietly(String key, UUID claim) {
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                store.release(key, claim);
+                return;
+            } catch (RuntimeException e) {
+                if (attempt == 3) {
+                    log.warn("Could not release Idempotency-Key {}; it frees itself when its lease expires: {}",
+                            key, e.toString());
+                    return;
+                }
+                try {
+                    Thread.sleep(50L * attempt);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
     }
 
     /** Deterministic refusals worth remembering: 402 insufficient funds, 404 unknown account, 422 rule broken. */

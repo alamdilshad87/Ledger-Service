@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,6 +31,12 @@ public class RequestTraceFilter extends OncePerRequestFilter {
     private static final Logger access = LoggerFactory.getLogger("ledger.access");
     private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9._-]{8,64}");
 
+    private final ObjectMapper json;
+
+    public RequestTraceFilter(ObjectMapper json) {
+        this.json = json;
+    }
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
@@ -40,6 +47,16 @@ public class RequestTraceFilter extends OncePerRequestFilter {
         long start = System.nanoTime();
         try {
             chain.doFilter(request, response);
+        } catch (RuntimeException | ServletException e) {
+            // Filters (auth, idempotency claim) run outside Spring MVC's exception handler. If one of them
+            // couldn't get a database connection in time, answer 503 rather than the container's bare 500.
+            if (!Overload.isPoolExhausted(e) || response.isCommitted()) {
+                throw e;
+            }
+            access.warn("No database connection available in time; answering 503");
+            response.resetBuffer();
+            response.setHeader("Retry-After", Overload.RETRY_AFTER_SECONDS);
+            ErrorResponses.write(response, json, 503, Overload.CODE, Overload.MESSAGE);
         } finally {
             if (!request.getRequestURI().startsWith("/actuator")) {   // skip health checks and metric scrapes
                 access.info("{} {} {}", request.getMethod(), request.getRequestURI(), response.getStatus(),

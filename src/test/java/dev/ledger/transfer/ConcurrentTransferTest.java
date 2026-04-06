@@ -59,9 +59,34 @@ class ConcurrentTransferTest extends ApiTestSupport {
         assertLedgerBalanced();
     }
 
+    /**
+     * Sends one transfer the way a well-behaved client does: if the service answers 503 (busy: 200 requests
+     * are queueing on the same two rows), wait and retry with the <em>same</em> Idempotency-Key. Whatever
+     * the number of attempts, the transfer happens at most once, so the exact counts below still hold.
+     * The 90 s budget outlasts the 60 s idempotency lease, the worst case if a busy attempt couldn't
+     * release its key.
+     */
     private HttpStatusCode transfer(long from, long to, long amount) {
-        return post("/v1/transfers", Map.of("fromAccountId", from, "toAccountId", to, "amount", amount)).getStatusCode();
+        String key = java.util.UUID.randomUUID().toString();
+        var body = Map.of("fromAccountId", from, "toAccountId", to, "amount", amount);
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(90).toNanos();
+        while (System.nanoTime() < deadline) {
+            HttpStatusCode status = post("/v1/transfers", body, key).getStatusCode();
+            if (status.value() != 503 && status.value() != 409) {   // 409: an earlier attempt is still running
+                return status;
+            }
+            busyRetries.incrementAndGet();
+            try {
+                Thread.sleep(50 + (long) (Math.random() * 200));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return status;
+            }
+        }
+        throw new AssertionError("Transfer still busy after 90 s of retries");
     }
+
+    private final AtomicInteger busyRetries = new AtomicInteger();
 
     /** Runs {@value #THREADS} calls that all start at the same moment; returns a count per HTTP status. */
     private Map<Integer, AtomicInteger> fire(Call call) throws Exception {
@@ -84,7 +109,7 @@ class ConcurrentTransferTest extends ApiTestSupport {
             ready.await();
             go.countDown();
             for (Future<?> f : futures) {
-                f.get(60, TimeUnit.SECONDS);
+                f.get(120, TimeUnit.SECONDS);
             }
         } finally {
             pool.shutdownNow();
