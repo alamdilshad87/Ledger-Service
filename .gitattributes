@@ -1,0 +1,5 @@
+# Scripts that run inside Linux containers must keep LF line endings, even on a Windows checkout.
+*.sh    text eol=lf
+mvnw    text eol=lf
+*.lua   text eol=lf
+Dockerfile text eol=lf

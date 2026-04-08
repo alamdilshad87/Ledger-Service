@@ -48,6 +48,7 @@ class MetricsTest extends ApiTestSupport {
                 .contains("ledger_outbox_oldest_pending_age_seconds")
                 .contains("ledger_outbox_publish_lag_seconds_bucket")
                 .contains("ledger_webhooks_pending")
+                .contains("ledger_db_deadlocks{application=\"ledger-service\"} 0.0")
                 .contains("http_server_requests_seconds_bucket{application=\"ledger-service\",error=\"none\",exception=\"none\",method=\"POST\"")
                 .contains("uri=\"/v1/transfers\"");
     }

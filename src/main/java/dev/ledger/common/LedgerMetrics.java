@@ -30,6 +30,11 @@ public class LedgerMetrics {
                         + "FROM outbox_events WHERE published_at IS NULL").query(Double.class).single());
         gauge("ledger.webhooks.pending", "Webhook deliveries waiting to be sent or retried",
                 () -> jdbc.sql("SELECT COUNT(*) FROM webhook_deliveries WHERE status = 'PENDING'").query(Long.class).single());
+        // Postgres's own count of deadlocks it had to break in this database (cumulative since stats reset).
+        // Load tests read it before and after a run: the difference must be 0.
+        gauge("ledger.db.deadlocks", "Deadlocks Postgres detected in this database",
+                () -> jdbc.sql("SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()")
+                        .query(Long.class).single());
         gauge("ledger.reconciliation.last.mismatches", "Mismatches found by the most recent reconciliation run",
                 () -> jdbc.sql("SELECT COALESCE((SELECT mismatch_count FROM reconciliation_runs ORDER BY ran_at DESC LIMIT 1), 0)")
                         .query(Long.class).single());
