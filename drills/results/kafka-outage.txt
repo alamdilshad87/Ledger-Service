@@ -1,0 +1,15 @@
+[06:17:01] Baseline: outbox backlog 0
+[06:17:04] Kafka stopped for 300 s; sending ~5 transfers/s
+[06:18:05]   +60s: backlog 145
+[06:19:06]   +120s: backlog 302
+[06:20:07]   +180s: backlog 452
+[06:21:08]   +240s: backlog 585
+[06:22:09]   +300s: backlog 739
+[06:22:10] While Kafka was down:     739 201 ; backlog peaked at 739
+[06:22:25] Kafka healthy again; waiting for the backlog to drain
+[06:22:31] Backlog drained 19 s after Kafka was started
+[06:22:32] Events written during the drill: 739, unpublished: 0
+[06:22:33] Longest commit→publish lag: 318 s
+[06:22:34] postings sum (must be 0):            0
+[06:22:36] accounts with drifted balance (0):   0
+[06:22:37] entries without postings (0):        0

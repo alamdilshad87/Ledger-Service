@@ -1,0 +1,4 @@
+[05:56:53] Wallet 14144 has 20000 paise; adding ₹1 behind the ledger's back
+[05:56:55] Reconciliation: MISMATCHED
+    {"type":"BALANCE_DRIFT","reference":"account:14144","expected":20000,"actual":20100,"detail":"Cached balance differs from its postings"}
+[05:56:57] Restored; re-running: MATCHED

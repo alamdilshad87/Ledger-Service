@@ -1,0 +1,14 @@
+[05:58:01] Redis up  :     100 201     100 201r  in 57618 ms for 200 requests
+[05:58:02]   replays served from Redis: 100, from Postgres: 0
+ Container ledger-service-redis-1 Stopping 
+ Container ledger-service-redis-1 Stopped 
+[05:58:04] Redis stopped
+[06:01:41] Redis down:     100 201     100 201r  in 216824 ms for 200 requests
+[06:01:41]   replays served from Redis: 0, from Postgres: 100
+  rate limiter failed open 106 times
+ Container ledger-service-redis-1 Starting 
+ Container ledger-service-redis-1 Started 
+[06:01:51] Redis back. Recipient got 200 transfers (must be 200); balance 20000 (must be 20000)
+[06:01:52] postings sum (must be 0):            0
+[06:01:54] accounts with drifted balance (0):   0
+[06:01:55] entries without postings (0):        0
