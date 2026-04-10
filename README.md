@@ -175,7 +175,7 @@ Every money-moving POST needs an `Idempotency-Key` header. Keys are scoped to th
 
 ## Tests
 
-`./mvnw test` runs 188 tests against real Postgres, Redis and Kafka (Testcontainers). The ones that matter most:
+`./mvnw test` runs 185 tests against real Postgres, Redis and Kafka (Testcontainers). The ones that matter most:
 
 - `LedgerInvariantTest`: 1,000 random transfers between 20 wallets. Then it checks that postings sum to 0, every cached balance equals its postings, the total is conserved, and nothing is negative.
 - `ConcurrentTransferTest`: 200-thread races, 20 times over. One drains a single wallet (exactly 100 of 200 succeed). The other sends opposite-direction transfers (all succeed, no deadlocks).
