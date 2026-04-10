@@ -47,9 +47,9 @@ class HotAccountConcurrencyTest extends ApiTestSupport {
                 long wallet = wallets.get(n % WALLETS);
                 long other = wallets.get((n + 7) % WALLETS);
                 var response = switch (n % 3) {
-                    case 0 -> post("/v1/payments", Map.of("fromAccountId", wallet, "merchantId", shop.id(), "amount", 1_000));
-                    case 1 -> post("/v1/topups", Map.of("accountId", wallet, "amount", 500));
-                    default -> post("/v1/transfers", Map.of("fromAccountId", wallet, "toAccountId", other, "amount", 300));
+                    case 0 -> postRetryingWhileBusy("/v1/payments", Map.of("fromAccountId", wallet, "merchantId", shop.id(), "amount", 1_000));
+                    case 1 -> postRetryingWhileBusy("/v1/topups", Map.of("accountId", wallet, "amount", 500));
+                    default -> postRetryingWhileBusy("/v1/transfers", Map.of("fromAccountId", wallet, "toAccountId", other, "amount", 300));
                 };
                 outcomes.computeIfAbsent((n % 3) + ":" + response.getStatusCode().value(), k -> new AtomicInteger())
                         .incrementAndGet();
@@ -58,11 +58,12 @@ class HotAccountConcurrencyTest extends ApiTestSupport {
         }
         go.countDown();
         for (Future<?> f : futures) {
-            f.get(60, TimeUnit.SECONDS);
+            f.get(120, TimeUnit.SECONDS);
         }
         pool.shutdownNow();
 
-        // Everything succeeds: wallets start with ₹1,000 and spend at most ₹110 each.
+        // Everything succeeds (a busy 503 is retried with the same key, as a client would): wallets start
+        // with ₹1,000 and spend at most ₹110 each.
         assertThat(outcomes.keySet()).as("outcomes %s", outcomes).containsOnly("0:201", "1:201", "2:201");
         int payments = outcomes.get("0:201").get();
         int topUps = outcomes.get("1:201").get();

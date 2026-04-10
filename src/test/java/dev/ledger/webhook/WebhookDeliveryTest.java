@@ -140,9 +140,9 @@ class WebhookDeliveryTest extends ApiTestSupport {
             long elapsedMs = (System.nanoTime() - start) / 1_000_000;
 
             assertThat(elapsedMs).isGreaterThanOrEqualTo(750);
-            int attempts = jdbc.sql("SELECT attempts FROM webhook_deliveries WHERE subscription_id = CAST(:s AS uuid)")
-                    .param("s", subscription).query(Integer.class).single();
-            assertThat(attempts).isGreaterThanOrEqualTo(6);
+            // The worker records an attempt just after the merchant answers, so the row can trail the server's count briefly.
+            await(() -> jdbc.sql("SELECT attempts FROM webhook_deliveries WHERE subscription_id = CAST(:s AS uuid)")
+                    .param("s", subscription).query(Integer.class).single() >= 6, Duration.ofSeconds(5), "six attempts recorded");
         }
     }
 }

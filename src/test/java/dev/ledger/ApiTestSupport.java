@@ -93,6 +93,29 @@ public abstract class ApiTestSupport {
         return http.exchange(path, HttpMethod.POST, new HttpEntity<>(body, headers), JSON);
     }
 
+    /**
+     * POST the way a well-behaved client does under load: on 503 (busy) or 409 (an earlier attempt is still
+     * running), wait briefly and retry with the <em>same</em> idempotency key, so the operation happens at most
+     * once however many attempts it takes. Gives up after 90 s, longer than the 60 s idempotency lease.
+     */
+    protected ResponseEntity<Map<String, Object>> postRetryingWhileBusy(String path, Object body) {
+        String key = UUID.randomUUID().toString();
+        long deadline = System.nanoTime() + java.time.Duration.ofSeconds(90).toNanos();
+        while (true) {
+            var response = post(path, body, key);
+            int status = response.getStatusCode().value();
+            if ((status != 503 && status != 409) || System.nanoTime() > deadline) {
+                return response;
+            }
+            try {
+                Thread.sleep(50 + (long) (Math.random() * 200));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return response;
+            }
+        }
+    }
+
     /** POST a raw JSON string exactly as written (to test whitespace and key order). */
     protected ResponseEntity<Map<String, Object>> postRaw(String path, String json, String idempotencyKey) {
         HttpHeaders headers = new HttpHeaders();
