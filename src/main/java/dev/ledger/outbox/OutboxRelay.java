@@ -2,8 +2,10 @@ package dev.ledger.outbox;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import dev.ledger.common.LedgerMetrics;
@@ -63,37 +65,60 @@ public class OutboxRelay {
                             rs.getString("payload")))
                     .list();
 
-            int sent = 0;
+            if (rows.isEmpty()) {
+                return 0;
+            }
+            // Send the whole batch first, then wait for the acks. Waiting for each ack before the next send
+            // capped the relay at one broker round trip per event (~200 events/s in the ramp load test).
+            // Order is still kept per key: the producer is idempotent (enable.idempotence, acks=all), so
+            // records to one partition land in send order even when retried, and a failed record fails
+            // the ones queued behind it on that partition too.
+            List<CompletableFuture<?>> acks = new ArrayList<>(rows.size());
             for (OutboxRow row : rows) {
+                acks.add(send(row));
+            }
+            long deadline = System.nanoTime() + properties.sendTimeout().toNanos();
+            List<UUID> acked = new ArrayList<>(rows.size());
+            for (int i = 0; i < rows.size(); i++) {
+                OutboxRow row = rows.get(i);
                 try {
-                    send(row);
+                    acks.get(i).get(Math.max(0, deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
                 } catch (Exception e) {
-                    // Stop at the first failure so later events don't overtake this one. Rows sent so far
-                    // in this batch are still marked; the rest are retried on the next tick.
+                    // Mark only the acked prefix: this row and everything after it are retried on the next
+                    // tick, in order. Later rows that did reach Kafka get sent again, which consumers
+                    // already tolerate (at-least-once, deduped by eventId).
                     log.warn("Outbox publish failed at event {} ({}); will retry: {}", row.id(), row.eventType(), e.toString());
                     break;
                 }
-                // clock_timestamp(), not now(): now() is the transaction's start time, which would understate lag.
-                double lagSeconds = jdbc.sql("""
-                                UPDATE outbox_events SET published_at = clock_timestamp() WHERE id = :id
-                                RETURNING EXTRACT(EPOCH FROM published_at - created_at)
-                                """)
-                        .param("id", row.id()).query(Double.class).single();
-                metrics.outboxPublished(Duration.ofMillis(Math.round(lagSeconds * 1000)));
-                sent++;
+                acked.add(row.id());
             }
-            return sent;
+            if (acked.isEmpty()) {
+                return 0;
+            }
+            // clock_timestamp(), not now(): now() is the transaction's start time, which would understate lag.
+            List<Double> lags = jdbc.sql("""
+                            UPDATE outbox_events SET published_at = clock_timestamp() WHERE id IN (:ids)
+                            RETURNING EXTRACT(EPOCH FROM published_at - created_at)
+                            """)
+                    .param("ids", acked)
+                    .query(Double.class).list();
+            lags.forEach(lag -> metrics.outboxPublished(Duration.ofMillis(Math.round(lag * 1000))));
+            return acked.size();
         });
         return published == null ? 0 : published;
     }
 
-    private void send(OutboxRow row) throws Exception {
+    private CompletableFuture<?> send(OutboxRow row) {
         ProducerRecord<String, String> record =
                 new ProducerRecord<>(properties.topic(), row.aggregateId().toString(), row.payload());
         record.headers().add("eventId", row.id().toString().getBytes(StandardCharsets.UTF_8));
         record.headers().add("eventType", row.eventType().getBytes(StandardCharsets.UTF_8));
-        // Wait for the broker's ack (acks=all) before marking the row as published.
-        kafka.send(record).get(properties.sendTimeout().toMillis(), TimeUnit.MILLISECONDS);
+        try {
+            return kafka.send(record);
+        } catch (Exception e) {
+            // send() itself can throw, e.g. when metadata isn't available within max.block.ms.
+            return CompletableFuture.failedFuture(e);
+        }
     }
 
     private record OutboxRow(UUID id, UUID aggregateId, String eventType, String payload) {

@@ -82,7 +82,22 @@ Overall: 49,374 requests, 100% of checks passed.
 - The app process never used more than 36% of the machine's CPU. Postgres, Kafka and k6 had the rest.
 - The pool's 3 s timeout turned the overflow into 9 fast `503 SERVICE_BUSY` with `Retry-After`, not timeouts.
 
-**Second bottleneck found: the outbox relay.** The backlog of unpublished events peaked at 14,388. The relay waits for Kafka's ack on each event before sending the next, which caps it at about 200 events/s, below the ~340 entries/s the ledger can commit. Nothing is lost (events stay in Postgres until acked), but webhooks lag behind under sustained load. The fix is to send a batch without waiting, then wait for all acks before marking the rows, with the producer's idempotence keeping per-key order. It's listed under "what I'd do next" in the README.
+**Second bottleneck found, and fixed: the outbox relay.** In the run above, the backlog of unpublished events peaked at 14,388. The relay waited for Kafka's ack on each event before sending the next, so it published at most about 200 events/s, below the ~340 entries/s the ledger can commit. Nothing was lost (events stay in Postgres until acked), but webhooks fell behind under sustained load.
+
+The fix sends the whole batch (up to 100 events), then waits for the acks, and marks the acked rows with one `UPDATE` instead of one per event. Per-key order still holds, because the producer is idempotent (`enable.idempotence`, `acks=all`). If an ack fails, only the acked rows before it are marked, and everything from that row on is retried next tick. `OutboxRelayTest` checks the ordering with a 250-event backlog spread across 5 keys.
+
+The same ramp was run before and after the fix, each time from a fresh database. The laptop was busier than during the run above, so compare the two columns with each other rather than with the table above:
+
+| | Before (one ack at a time) | After (pipelined) |
+| --- | --- | --- |
+| Max outbox backlog | 20,303 | **1,278** |
+| Requests completed (avg rate) | 37,755 (157/s) | 44,768 (187/s) |
+| Latency p50 / p95 | 3,124 ms / 7,517 ms | 712 ms / 4,514 ms |
+| p95 at 150–200 req/s | 1,833 ms | 272 ms |
+| 503 busy | 357 | 87 |
+
+Faster publishing also means the relay's transaction holds its DB connection for a shorter time, which leaves more of the 20-connection pool for requests.
+
 
 ## Failure drills
 

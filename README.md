@@ -128,6 +128,8 @@ Load (k6, details and per-step tables in [docs/results.md](docs/results.md)):
 | Retry storm (3 concurrent copies per key, plus a late retry) | 160 req/s | 6 / 15 / 33 ms | 2,400 transfers, **0 duplicate entries** |
 | Ramp 20 → 400 req/s, mixed traffic | flat at ~340 req/s | p95 < 250 ms up to 325 req/s | 100% checks; 9 fast 503s at the top |
 
+The ramp also exposed an outbox relay that published one event per Kafka round trip, about 200 events/s. Pipelining its sends cut the peak event backlog from 20,303 to 1,278 in a before/after run ([details](docs/results.md#4-ramp-20--400-reqs-over-4-minutes-70-transfers-20-payments-to-10-merchants-10-top-ups)).
+
 Failure drills (every one ends with `SUM(postings) = 0` and no balance drift):
 
 | Drill | What happened |
@@ -173,7 +175,7 @@ Every money-moving POST needs an `Idempotency-Key` header. Keys are scoped to th
 
 ## Tests
 
-`./mvnw test` runs 187 tests against real Postgres, Redis and Kafka (Testcontainers). The ones that matter most:
+`./mvnw test` runs 188 tests against real Postgres, Redis and Kafka (Testcontainers). The ones that matter most:
 
 - `LedgerInvariantTest`: 1,000 random transfers between 20 wallets. Then it checks that postings sum to 0, every cached balance equals its postings, the total is conserved, and nothing is negative.
 - `ConcurrentTransferTest`: 200-thread races, 20 times over. One drains a single wallet (exactly 100 of 200 succeed). The other sends opposite-direction transfers (all succeed, no deadlocks).
@@ -183,7 +185,6 @@ Every money-moving POST needs an `Idempotency-Key` header. Keys are scoped to th
 
 ## What I'd do next
 
-- **Pipeline the outbox relay.** Send a batch without waiting for each ack, then mark the rows. It's capped at about 200 events/s today, so under sustained load above that, webhooks fall behind (backlog of 14k in the ramp test, nothing lost).
 - **Circuit breaker around Redis**, so an outage costs one 250 ms timeout, not three per request.
 - **Claim the idempotency key in the business transaction**, saving one DB round trip and one connection per request. That matters because the pool is the bottleneck at 340 req/s.
 - **Shard house accounts** (merchant and clearing balances split across N sub-accounts) or drop their cached balance, to remove the last hot row.
